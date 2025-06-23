@@ -1,4 +1,4 @@
-use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey, OnEvent, TickEvent};
+use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey, OnEvent, SmolStr, TickEvent};
 use pelican_ui::drawable::{Align, Drawable, Component};
 use pelican_ui::layout::{Area, SizeRequest, Layout};
 use pelican_ui::{Context, Component};
@@ -59,7 +59,7 @@ impl Galaga {
             // });
         } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() { 
             match key {
-                Key::Named(NamedKey::ArrowLeft) => {
+                Key::Named(NamedKey::ArrowLeft)  => {
                     let (maxw, maxh) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
@@ -68,7 +68,25 @@ impl Galaga {
                         }
                     }
                 },
+                Key::Character(c) if c == "a" => {
+                    let (maxw, _maxh) = board.0.size(ctx);
+                    if let Some(player) = board.2.get_mut("player") {
+                        let pw = player.dimensions().0;
+                        if player.offset().0.get(pw, maxw).abs() + player.position().0 > 5.0 {
+                            player.position().0 -= STEP;
+                        }
+                    }
+                },
                 Key::Named(NamedKey::ArrowRight) => {
+                    let (maxw, maxh) = board.0.size(ctx);
+                    if let Some(player) = board.2.get_mut("player") {
+                        let pw = player.dimensions().0;
+                        if player.offset().0.get(pw, maxw).abs() + player.position().0 < maxw - pw - 5.0 {
+                            player.position().0 += STEP;
+                        }
+                    }
+                },
+                Key::Character(c) if c == "d" => {
                     let (maxw, maxh) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
