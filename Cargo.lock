@@ -3069,6 +3069,7 @@ dependencies = [
  "pelican_ui",
  "pelican_ui_std",
  "serde",
+ "uuid",
 ]
 
 [[package]]

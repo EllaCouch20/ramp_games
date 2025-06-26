@@ -21,7 +21,6 @@ impl Galaga {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = Sprite::new(ctx, "player", "ship.png", (30.0, 30.0), (Offset::Center, Offset::End));
         gameboard.insert_sprite(ctx, player);
-
         gameboard
     }
 
@@ -36,31 +35,10 @@ impl Galaga {
                 }
                 *s.dimensions() = (maxw / 20.0, maxw / 20.0);
             });
-            // let (maxw, maxh) = board.dimensions();
-            // let x = board.0.0.get(max_size.0, maxw);
-            // let y = board.0.1.get(max_size.1, maxh);
-            // (x, y)
-            // let GameboardSize(maxw, maxh) = ctx.state().get::<GameboardSize>();
-            // let children = &board.2;
-
-            // children.iter().enumerate().for_each(|(i, a)| {
-            //     let (ax, ay) = a.position((maxw, maxh));
-            //     let (aw, ah) = a.dimensions();
-
-            //     children.iter().skip(i + 1).for_each(|b| {
-            //         let (bx, by) = a.position((maxw, maxh));
-            //         let (bw, bh) = b.dimensions();
-
-            //         if  ax < bx + bw && ax + aw > bx && ay < by + bh && ay + ah > by {
-            //             ctx.trigger_event(CollisionEvent(a.id()));
-            //             ctx.trigger_event(CollisionEvent(b.id()));
-            //         }
-            //     });
-            // });
-        } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() { 
+        } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() {
             match key {
                 Key::Named(NamedKey::ArrowLeft) => {
-                    let (maxw, maxh) = board.0.size(ctx);
+                    let (maxw, _) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
                         if player.offset().0.get(pw, maxw).abs() + player.position().0 > 5.0 {
@@ -69,12 +47,22 @@ impl Galaga {
                     }
                 },
                 Key::Named(NamedKey::ArrowRight) => {
-                    let (maxw, maxh) = board.0.size(ctx);
+                    let (maxw, _) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
                         if player.offset().0.get(pw, maxw).abs() + player.position().0 < maxw - pw - 5.0 {
                             player.position().0 += STEP;
+                            println!("Player position: {:?}", player.position());
                         }
+                    }
+                },
+                Key::Named(NamedKey::ArrowUp) => {
+                    if let Some(player) = board.2.get_mut("player") {
+                        let player_pos = player.position();
+                        println!("Player position: {:?}", player_pos);
+                        let id = uuid::Uuid::new_v4().to_string();
+                        let mut bullet = Sprite::new(ctx, &id, "Bullet_upward.png", (10.0, 20.0), (Offset::Static(player_pos.0), Offset::Static(player_pos.1 - 5.0)));
+                        board.insert_sprite(ctx, bullet);  
                     }
                 },
                 _ => {}
