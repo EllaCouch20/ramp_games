@@ -21,6 +21,7 @@ impl Galaga {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = Sprite::new(ctx, "player", "ship.png", (30.0, 30.0), (Offset::Center, Offset::End));
         gameboard.insert_sprite(ctx, player);
+
         gameboard
     }
 
@@ -35,10 +36,10 @@ impl Galaga {
                 }
                 *s.dimensions() = (maxw / 20.0, maxw / 20.0);
             });
-        } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() {
+        } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() { 
             match key {
                 Key::Named(NamedKey::ArrowLeft) => {
-                    let (maxw, _) = board.0.size(ctx);
+                    let (maxw, maxh) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
                         if player.offset().0.get(pw, maxw).abs() + player.position().0 > 5.0 {
@@ -47,12 +48,11 @@ impl Galaga {
                     }
                 },
                 Key::Named(NamedKey::ArrowRight) => {
-                    let (maxw, _) = board.0.size(ctx);
+                    let (maxw, maxh) = board.0.size(ctx);
                     if let Some(player) = board.2.get_mut("player") {
                         let pw = player.dimensions().0;
                         if player.offset().0.get(pw, maxw).abs() + player.position().0 < maxw - pw - 5.0 {
                             player.position().0 += STEP;
-                            println!("Player position: {:?}", player.position());
                         }
                     }
                 },
@@ -62,9 +62,10 @@ impl Galaga {
                         println!("Player position: {:?}", player_pos);
                         let id = uuid::Uuid::new_v4().to_string();
                         let mut bullet = Sprite::new(ctx, &id, "Bullet_upward.png", (10.0, 20.0), (Offset::Static(player_pos.0), Offset::Static(player_pos.1 - 5.0)));
-                        board.insert_sprite(ctx, bullet);  
+                        board.insert_sprite(ctx, bullet);
                     }
                 },
+
                 _ => {}
             }
         }
