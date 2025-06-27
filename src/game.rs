@@ -74,7 +74,7 @@ impl Galaga {
                 Key::Character(c) if c == "a" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
                 Key::Character(c) if c == "d" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveRight),
                 Key::Named(NamedKey::ArrowUp) => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot),
-                Key::Character(c) if c == " " => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot), /
+                Key::Character(c) if c == " " => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot),
                 _ => {}
             }
         }
