@@ -5,7 +5,7 @@ use pelican_ui::{Context, Component};
 
 use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextStyle, Text, AppPage, Size, Padding};
 
-use pelican_game_engine::{CollisionEvent, AspectRatio, Sprite, GameGrid, GameboardBackground, Gameboard};
+use pelican_game_engine::{CollisionEvent, AspectRatio, Sprite, GameLayout, GameboardBackground, Gameboard, SpriteAction};
 
 use std::collections::HashMap;
 
@@ -19,10 +19,32 @@ pub struct Galaga;
 impl Galaga {
     pub fn new(ctx: &mut Context) -> Gameboard {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
-        let player = Sprite::new(ctx, "player", "ship.png", (30.0, 30.0), (Offset::Center, Offset::End));
+        let player = Sprite::new(ctx, "player", "spaceship_blue.png", (50.0, 50.0), (Offset::Center, Offset::End));
         gameboard.insert_sprite(ctx, player);
-
         gameboard
+    }
+
+    fn sprite_action(ctx: &mut Context, board: &mut Gameboard, name: &str, action: SpriteAction) {
+        let (maxw, maxh) = board.0.size(ctx);
+        if let Some(sprite) = board.2.get_mut(name) {
+            match action {
+                SpriteAction::MoveLeft => {
+                    if sprite.position(ctx).0 > 5.0 { sprite.adjustments().0 -= STEP; }
+                },
+                SpriteAction::MoveRight => {
+                    if sprite.position(ctx).0 < maxw - sprite.dimensions().0 - 5.0 { sprite.adjustments().0 += STEP; }
+                },
+                SpriteAction::Shoot => {
+                    let b_size = (15.0, 15.0);
+                    let size = sprite.dimensions().clone();
+                    let (x, y) = sprite.position(ctx);
+                    let id = uuid::Uuid::new_v4().to_string();
+                    let mut bullet = Sprite::new(ctx, &id, "bullet_blue.png", b_size, (Offset::Static(x + ((size.0 - b_size.0) / 2.0)), Offset::Static(y - 20.0)));
+                    board.insert_sprite(ctx, bullet);
+                },
+                _ => {}
+            }
+        }
     }
 
     fn on_event(board: &mut Gameboard, ctx: &mut Context, event: &mut dyn Event) -> bool {
@@ -30,42 +52,19 @@ impl Galaga {
             let (maxw, maxh) = board.0.size(ctx);
             board.2.iter_mut().for_each(|(_, s)| {
                 if let Some(location) = board.0.0.get_mut(s.id()) {
-                    let sd = s.dimensions().clone();
-                    location.0 = Offset::Static(s.offset().0.get(sd.0, maxw).abs() + s.position().0);
-                    location.1 = Offset::Static(s.offset().1.get(sd.1, maxh).abs() + s.position().1);
+                    let (x, y) = s.position(ctx);
+                    location.0 = Offset::Static(x);
+                    location.1 = Offset::Static(y);
                 }
-                *s.dimensions() = (maxw / 20.0, maxw / 20.0);
+                // *s.dimensions() = (maxw / 20.0, maxw / 20.0); TODO: Need to keep everything a percentage of screen size or prevent resizing
             });
         } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() { 
             match key {
-                Key::Named(NamedKey::ArrowLeft) => {
-                    let (maxw, maxh) = board.0.size(ctx);
-                    if let Some(player) = board.2.get_mut("player") {
-                        let pw = player.dimensions().0;
-                        if player.offset().0.get(pw, maxw).abs() + player.position().0 > 5.0 {
-                            player.position().0 -= STEP;
-                        }
-                    }
-                },
-                Key::Named(NamedKey::ArrowRight) => {
-                    let (maxw, maxh) = board.0.size(ctx);
-                    if let Some(player) = board.2.get_mut("player") {
-                        let pw = player.dimensions().0;
-                        if player.offset().0.get(pw, maxw).abs() + player.position().0 < maxw - pw - 5.0 {
-                            player.position().0 += STEP;
-                        }
-                    }
-                },
-                Key::Named(NamedKey::ArrowUp) => {
-                    if let Some(player) = board.2.get_mut("player") {
-                        let player_pos = player.position();
-                        println!("Player position: {:?}", player_pos);
-                        let id = uuid::Uuid::new_v4().to_string();
-                        let mut bullet = Sprite::new(ctx, &id, "Bullet_upward.png", (10.0, 20.0), (Offset::Static(player_pos.0), Offset::Static(player_pos.1 - 5.0)));
-                        board.insert_sprite(ctx, bullet);
-                    }
-                },
-
+                Key::Named(NamedKey::ArrowLeft) => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
+                Key::Named(NamedKey::ArrowRight) => Self::sprite_action(ctx, board, "player", SpriteAction::MoveRight),
+                Key::Character(c) if c == "a" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
+                Key::Character(c) if c == "d" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveRight),
+                Key::Named(NamedKey::ArrowUp) => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot),
                 _ => {}
             }
         }
