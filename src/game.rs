@@ -3,6 +3,8 @@ use pelican_ui::drawable::{Align, Drawable, Component};
 use pelican_ui::layout::{Area, SizeRequest, Layout};
 use pelican_ui::{Context, Component};
 
+
+
 use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextStyle, Text, AppPage, Size, Padding};
 
 use pelican_game_engine::{CollisionEvent, AspectRatio, Sprite, GameLayout, GameboardBackground, Gameboard, SpriteAction};
@@ -22,6 +24,39 @@ impl Galaga {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = Sprite::new(ctx, "player", "spaceship_blue.png", (50.0, 50.0), (Offset::Center, Offset::End));
         gameboard.insert_sprite(ctx, player);
+
+        let (board_width, board_height) = gameboard.0.size(ctx);
+        
+        let enemies = vec![
+ 
+            ("b2_1", "b-2.png", board_width * 0.2, board_height * 0.1),
+            ("b2_2", "b-2.png", board_width * 0.4, board_height * 0.1),
+            ("b2_3", "b-2.png", board_width * 0.6, board_height * 0.1),
+            ("b2_4", "b-2.png", board_width * 0.8, board_height * 0.1),
+            
+            ("tiki_1", "tiki.png", board_width * 0.15, board_height * 0.2),
+            ("tiki_2", "tiki.png", board_width * 0.3, board_height * 0.2),
+            ("tiki_3", "tiki.png", board_width * 0.5, board_height * 0.2),
+            ("tiki_4", "tiki.png", board_width * 0.7, board_height * 0.2),
+            ("tiki_5", "tiki.png", board_width * 0.85, board_height * 0.2),
+            
+            ("northrop_1", "northrup.png", board_width * 0.25, board_height * 0.3),
+            ("northrop_2", "northrup.png", board_width * 0.4, board_height * 0.3),
+            ("northrop_3", "northrup.png", board_width * 0.6, board_height * 0.3),
+            ("northrop_4", "northrup.png", board_width * 0.75, board_height * 0.3),
+        ];
+
+        // for (id, image, x, y) in enemies {
+        //     let sprite = Sprite::new(
+        //         ctx, 
+        //         id, 
+        //         image, 
+        //         (50.0, 50.0), 
+        //         (Offset::Static(x), Offset::Static(y))
+        //     );
+        //     gameboard.insert_sprite(ctx, sprite);
+        // }
+
         gameboard
     }
 
@@ -40,7 +75,7 @@ impl Galaga {
                     let size = sprite.dimensions().clone();
                     let (x, y) = sprite.position(ctx);
                     let bullet_id = format!("bullet_{}", uuid::Uuid::new_v4());
-                    let mut bullet = Sprite::new(ctx, &bullet_id, "bullet_blue.png", b_size, (Offset::Static(x + ((size.0 - b_size.0) / 2.0)), Offset::Static(y - 20.0)));
+                    let bullet = Sprite::new(ctx, &bullet_id, "bullet_blue.png", b_size, (Offset::Static(x + ((size.0 - b_size.0) / 2.0)), Offset::Static(y - 20.0)));
                     board.insert_sprite(ctx, bullet);
                 },
                 _ => {}
@@ -71,14 +106,12 @@ impl Galaga {
             match key {
                 Key::Named(NamedKey::ArrowLeft) => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
                 Key::Named(NamedKey::ArrowRight) => Self::sprite_action(ctx, board, "player", SpriteAction::MoveRight),
-                Key::Character(c) if c == "a" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
-                Key::Character(c) if c == "d" => Self::sprite_action(ctx, board, "player", SpriteAction::MoveRight),
                 Key::Named(NamedKey::ArrowUp) => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot),
-                Key::Character(c) if c == " " => Self::sprite_action(ctx, board, "player", SpriteAction::Shoot), /
                 _ => {}
             }
         }
         true
     }
 }
+
 // Example: sprite.adjustments().1 is the y adjustment (moving up)

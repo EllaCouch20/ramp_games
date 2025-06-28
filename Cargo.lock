@@ -3068,6 +3068,7 @@ dependencies = [
  "pelican_game_engine",
  "pelican_ui",
  "pelican_ui_std",
+ "rand 0.9.1",
  "serde",
  "uuid",
 ]

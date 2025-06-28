@@ -11,6 +11,7 @@ pelican_ui_std = { path = "../pelican_ui_std" }
 serde = "1.0.219"
 pelican_game_engine = {path = "../pelican_game_engine"}
 uuid = "1.17.0"
+rand = "0.9.1"
 
 [lib]
 name="main"
