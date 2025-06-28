@@ -3,8 +3,6 @@ use pelican_ui::drawable::{Align, Drawable, Component};
 use pelican_ui::layout::{Area, SizeRequest, Layout};
 use pelican_ui::{Context, Component};
 
-
-
 use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextStyle, Text, AppPage, Size, Padding};
 
 use pelican_game_engine::{CollisionEvent, AspectRatio, Sprite, GameLayout, GameboardBackground, Gameboard, SpriteAction};
@@ -16,48 +14,52 @@ use std::collections::HashMap;
 const STEP: f32 = 5.0;
 const BULLET_SPEED: f32 = 8.0;
 
+static mut ENEMIES_CREATED: bool = false;
+
 #[derive(Debug)]
 pub struct Galaga;
 
 impl Galaga {
     pub fn new(ctx: &mut Context) -> Gameboard {
+        unsafe { ENEMIES_CREATED = false; }
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = Sprite::new(ctx, "player", "spaceship_blue.png", (50.0, 50.0), (Offset::Center, Offset::End));
         gameboard.insert_sprite(ctx, player);
-
-        let (board_width, board_height) = gameboard.0.size(ctx);
         
+        gameboard
+    }
+
+    fn create_enemies(ctx: &mut Context, board: &mut Gameboard) {
+        let (board_width, board_height) = board.0.size(ctx);
+    
         let enemies = vec![
- 
             ("b2_1", "b-2.png", board_width * 0.2, board_height * 0.1),
             ("b2_2", "b-2.png", board_width * 0.4, board_height * 0.1),
             ("b2_3", "b-2.png", board_width * 0.6, board_height * 0.1),
             ("b2_4", "b-2.png", board_width * 0.8, board_height * 0.1),
             
-            ("tiki_1", "tiki.png", board_width * 0.15, board_height * 0.2),
-            ("tiki_2", "tiki.png", board_width * 0.3, board_height * 0.2),
-            ("tiki_3", "tiki.png", board_width * 0.5, board_height * 0.2),
-            ("tiki_4", "tiki.png", board_width * 0.7, board_height * 0.2),
-            ("tiki_5", "tiki.png", board_width * 0.85, board_height * 0.2),
+            ("tiki_1", "tiki_fly.png", board_width * 0.15, board_height * 0.2),
+            ("tiki_2", "tiki_fly.png", board_width * 0.3, board_height * 0.2),
+            ("tiki_3", "tiki_fly.png", board_width * 0.5, board_height * 0.2),
+            ("tiki_4", "tiki_fly.png", board_width * 0.7, board_height * 0.2),
+            ("tiki_5", "tiki_fly.png", board_width * 0.85, board_height * 0.2),
             
-            ("northrop_1", "northrup.png", board_width * 0.25, board_height * 0.3),
-            ("northrop_2", "northrup.png", board_width * 0.4, board_height * 0.3),
-            ("northrop_3", "northrup.png", board_width * 0.6, board_height * 0.3),
-            ("northrop_4", "northrup.png", board_width * 0.75, board_height * 0.3),
+            ("northrop_1", "northrop.png", board_width * 0.25, board_height * 0.3),
+            ("northrop_2", "northrop.png", board_width * 0.4, board_height * 0.3),
+            ("northrop_3", "northrop.png", board_width * 0.6, board_height * 0.3),
+            ("northrop_4", "northrop.png", board_width * 0.75, board_height * 0.3),
         ];
 
-        // for (id, image, x, y) in enemies {
-        //     let sprite = Sprite::new(
-        //         ctx, 
-        //         id, 
-        //         image, 
-        //         (50.0, 50.0), 
-        //         (Offset::Static(x), Offset::Static(y))
-        //     );
-        //     gameboard.insert_sprite(ctx, sprite);
-        // }
-
-        gameboard
+        for (id, image, x, y) in enemies {
+            let sprite = Sprite::new(
+                ctx, 
+                id, 
+                image, 
+                (50.0, 50.0), 
+                (Offset::Static(x), Offset::Static(y))
+            );
+            board.insert_sprite(ctx, sprite);
+        }
     }
 
     fn sprite_action(ctx: &mut Context, board: &mut Gameboard, name: &str, action: SpriteAction) {
@@ -85,6 +87,13 @@ impl Galaga {
 
     fn on_event(board: &mut Gameboard, ctx: &mut Context, event: &mut dyn Event) -> bool {
         if let Some(TickEvent) = event.downcast_ref::<TickEvent>() {
+            unsafe {
+                if !ENEMIES_CREATED {
+                    Self::create_enemies(ctx, board);
+                    ENEMIES_CREATED = true;
+                }
+            }
+            
             let (maxw, maxh) = board.0.size(ctx);
             
             board.2.iter_mut().for_each(|(id, s)| {
@@ -97,8 +106,6 @@ impl Galaga {
                 if id.starts_with("bullet_") {
                     s.adjustments().1 -= BULLET_SPEED; 
                 }
-                
-                // *s.dimensions() = (maxw / 20.0, maxw / 20.0); TODO: Need to keep everything a percentage of screen size or prevent resizing
             });
             
         } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() {
@@ -113,5 +120,3 @@ impl Galaga {
         true
     }
 }
-
-// Example: sprite.adjustments().1 is the y adjustment (moving up)
