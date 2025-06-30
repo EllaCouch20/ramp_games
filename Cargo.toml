@@ -12,6 +12,7 @@ serde = "1.0.219"
 pelican_game_engine = {path = "../pelican_game_engine"}
 uuid = "1.17.0"
 rand = "0.9.1"
+once_cell = "1.21.3"
 
 [lib]
 name="main"

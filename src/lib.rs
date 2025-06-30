@@ -9,7 +9,8 @@ use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey};
 use std::collections::BTreeMap;
 use std::ptr::addr_of_mut;
 use pelican_ui::include_assets;
-
+mod fly;
+mod player;
 mod game;
 use game::Galaga;
 
