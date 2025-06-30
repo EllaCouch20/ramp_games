@@ -28,7 +28,7 @@ impl Plugins for MyApp {
 
 impl Application for MyApp {
     async fn new(ctx: &mut Context) -> Box<dyn Drawable> {
-        ctx.assets.include_assets(include_assets!("./assets/galaga"));
+        ctx.assets.include_assets(include_assets!("./assets"));
         Box::new(Galaga::new(ctx))
     }
 }

@@ -1,3 +1,4 @@
+
 use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey, OnEvent, TickEvent};
 use pelican_ui::drawable::{Align, Drawable, Component};
 use pelican_ui::layout::{Area, SizeRequest, Layout};
@@ -8,8 +9,6 @@ use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextS
 use pelican_game_engine::{CollisionEvent, AspectRatio, Sprite, GameLayout, GameboardBackground, Gameboard, SpriteAction};
 
 use std::collections::HashMap;
-
-// use crate::structs::Player;
 
 const STEP: f32 = 5.0;
 const BULLET_SPEED: f32 = 8.0;
@@ -62,6 +61,32 @@ impl Galaga {
         }
     }
 
+    fn check_collision(sprite1_pos: (f32, f32), sprite1_size: (f32, f32), sprite2_pos: (f32, f32), sprite2_size: (f32, f32)) -> bool {
+        let (x1, y1) = sprite1_pos;
+        let (w1, h1) = sprite1_size;
+        let (x2, y2) = sprite2_pos;
+        let (w2, h2) = sprite2_size;
+        
+        let collision = x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2;
+        
+        if collision {
+            println!("COLLISION DETECTED!");
+            println!("  Bullet: pos=({:.1}, {:.1}), size=({:.1}, {:.1})", x1, y1, w1, h1);
+            println!("  Enemy:  pos=({:.1}, {:.1}), size=({:.1}, {:.1})", x2, y2, w2, h2);
+        }
+        
+        collision
+    }
+
+    fn remove_sprite_from_board(ctx: &mut Context, board: &mut Gameboard, sprite_id: &str) {
+        if board.2.remove(sprite_id).is_some() {
+            board.0.0.remove(sprite_id);
+            println!("Removed sprite: {}", sprite_id);
+        } else {
+            println!("Warning: Tried to remove non-existent sprite: {}", sprite_id);
+        }
+    }
+    
     fn sprite_action(ctx: &mut Context, board: &mut Gameboard, name: &str, action: SpriteAction) {
         let (maxw, maxh) = board.0.size(ctx);
         if let Some(sprite) = board.2.get_mut(name) {
@@ -86,29 +111,70 @@ impl Galaga {
     }
 
     fn on_event(board: &mut Gameboard, ctx: &mut Context, event: &mut dyn Event) -> bool {
-        if let Some(TickEvent) = event.downcast_ref::<TickEvent>() {
-            unsafe {
-                if !ENEMIES_CREATED {
-                    Self::create_enemies(ctx, board);
-                    ENEMIES_CREATED = true;
+    if let Some(TickEvent) = event.downcast_ref::<TickEvent>() {
+        unsafe {
+            if !ENEMIES_CREATED {
+                Self::create_enemies(ctx, board);
+                ENEMIES_CREATED = true;
+            }
+        }
+        
+        let (_maxw, _maxh) = board.0.size(ctx);
+        
+        let mut bullets_to_remove = Vec::new();
+        let mut active_bullets = Vec::new();
+        
+        for (id, sprite) in board.2.iter_mut() {
+            if id.starts_with("bullet_") {
+                sprite.adjustments().1 -= BULLET_SPEED;
+                
+                let pos = sprite.position(ctx);
+                
+                if pos.1 < -50.0 {
+                    bullets_to_remove.push(id.clone());
+                } else {
+                    let size = *sprite.dimensions();
+                    active_bullets.push((id.clone(), pos, size));
                 }
             }
-            
-            let (maxw, maxh) = board.0.size(ctx);
-            
-            board.2.iter_mut().for_each(|(id, s)| {
-                if let Some(location) = board.0.0.get_mut(s.id()) {
-                    let (x, y) = s.position(ctx);
-                    location.0 = Offset::Static(x);
-                    location.1 = Offset::Static(y);
+        }
+        
+        for bullet_id in &bullets_to_remove {
+            Self::remove_sprite_from_board(ctx, board, bullet_id);
+        }
+        
+        let mut sprites_to_remove = Vec::new();
+        
+        for (bullet_id, bullet_pos, bullet_size) in active_bullets {
+            for (enemy_id, enemy_sprite) in board.2.iter_mut() {
+                if enemy_id != "player" && !enemy_id.starts_with("bullet_") {
+                    let enemy_pos = enemy_sprite.position(ctx);
+                    let enemy_size = *enemy_sprite.dimensions();
+                    
+                    if Self::check_collision(bullet_pos, bullet_size, enemy_pos, enemy_size) {
+                        sprites_to_remove.push(bullet_id.clone());
+                        sprites_to_remove.push(enemy_id.clone());
+                        break;
+                    }
                 }
-                
-                if id.starts_with("bullet_") {
-                    s.adjustments().1 -= BULLET_SPEED; 
+            }
+        }
+        
+        for sprite_id in sprites_to_remove {
+            Self::remove_sprite_from_board(ctx, board, &sprite_id);
+        }
+        
+        let sprite_ids: Vec<String> = board.2.keys().cloned().collect();
+        for id in sprite_ids {
+            if let Some(sprite) = board.2.get_mut(&id) {
+                let (x, y) = sprite.position(ctx);
+                if let Some(layout_pos) = board.0.0.get_mut(&id) {
+                    layout_pos.0 = Offset::Static(x);
+                    layout_pos.1 = Offset::Static(y);
                 }
-            });
-            
-        } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() {
+            }
+        }
+    } else if let Some(KeyboardEvent{state: KeyboardState::Pressed, key}) = event.downcast_ref::<KeyboardEvent>() {
              
             match key {
                 Key::Named(NamedKey::ArrowLeft) => Self::sprite_action(ctx, board, "player", SpriteAction::MoveLeft),
