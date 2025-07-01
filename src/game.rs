@@ -148,6 +148,13 @@ impl Galaga {
                 }
             }
 
+            // *** ADD THIS LINE FOR SMOOTH MOVEMENT ***
+            unsafe {
+                if !PLAYER_IS_DEAD {
+                    PlayerManager::update_player_movement(ctx, board);
+                }
+            }
+
             EnemyManager::update_enemy_pulse(ctx, board);
             
             EnemyManager::update_tiki_shooting(ctx, board);
@@ -260,15 +267,10 @@ impl Galaga {
                     }
                 }
             }
-        } else if let Some(KeyboardEvent { state: KeyboardState::Pressed, key }) = event.downcast_ref::<KeyboardEvent>() {
+        } else if let Some(keyboard_event) = event.downcast_ref::<KeyboardEvent>() {
             unsafe {
                 if !PLAYER_IS_DEAD {
-                    match key {
-                        Key::Named(NamedKey::ArrowLeft) => PlayerManager::handle_player_action(ctx, board, SpriteAction::MoveLeft),
-                        Key::Named(NamedKey::ArrowRight) => PlayerManager::handle_player_action(ctx, board, SpriteAction::MoveRight),
-                        Key::Named(NamedKey::ArrowUp) => PlayerManager::handle_player_action(ctx, board, SpriteAction::Shoot),
-                        _ => {}
-                    }
+                    PlayerManager::handle_keyboard_input(ctx, board, keyboard_event);
                 }
             }
         }

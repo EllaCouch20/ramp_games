@@ -1,13 +1,33 @@
 use pelican_ui::{Context};
 use pelican_ui_std::Offset;
 use pelican_game_engine::{Sprite, Gameboard, SpriteAction};
+use pelican_ui::events::{KeyboardEvent, KeyboardState, Key, NamedKey};
 use std::time::{Duration, Instant};
 
-const STEP: f32 = 5.0;
+const STEP: f32 = 1.5; 
 const BULLET_SPEED: f32 = 8.0;
 const SHOOT_COOLDOWN: Duration = Duration::from_millis(500);
 
+const MOVEMENT_SPEED: f32 = 300.0; 
+
 static mut LAST_SHOT_TIME: Option<Instant> = None;
+static mut KEYS_HELD: KeysHeld = KeysHeld::new();
+static mut LAST_UPDATE_TIME: Option<Instant> = None;
+
+#[derive(Clone, Copy)]
+struct KeysHeld {
+    left: bool,
+    right: bool,
+}
+
+impl KeysHeld {
+    const fn new() -> Self {
+        Self {
+            left: false,
+            right: false,
+        }
+    }
+}
 
 pub struct PlayerManager;
 
@@ -15,15 +35,109 @@ impl PlayerManager {
     pub fn initialize() {
         unsafe {
             LAST_SHOT_TIME = None;
+            KEYS_HELD = KeysHeld::new();
+            LAST_UPDATE_TIME = Some(Instant::now());
         }
     }
 
     pub fn create_player(ctx: &mut Context) -> Sprite {
-
         let mut player = Sprite::new(ctx, "player", "spaceship_blue.png", (50.0, 50.0), (Offset::Center, Offset::End));
         player.adjustments().0 = 0.0;
         player.adjustments().1 = 0.0;
         player
+    }
+
+    pub fn handle_keyboard_input(ctx: &mut Context, board: &mut Gameboard, keyboard_event: &KeyboardEvent) -> bool {
+        let mut handled = false;
+        
+        unsafe {
+            match keyboard_event {
+                KeyboardEvent { state: KeyboardState::Pressed, key: Key::Named(NamedKey::ArrowLeft) } => {
+                    KEYS_HELD.left = true;
+                    handled = true;
+                }
+                KeyboardEvent { state: KeyboardState::Released, key: Key::Named(NamedKey::ArrowLeft) } => {
+                    KEYS_HELD.left = false;
+                    handled = true;
+                }
+                KeyboardEvent { state: KeyboardState::Pressed, key: Key::Named(NamedKey::ArrowRight) } => {
+                    KEYS_HELD.right = true;
+                    handled = true;
+                }
+                KeyboardEvent { state: KeyboardState::Released, key: Key::Named(NamedKey::ArrowRight) } => {
+                    KEYS_HELD.right = false;
+                    handled = true;
+                }
+                KeyboardEvent { state: KeyboardState::Pressed, key: Key::Named(NamedKey::ArrowUp) } => {
+                    Self::handle_shooting(ctx, board);
+                    handled = true;
+                }
+                _ => {}
+            }
+        }
+        
+        handled
+    }
+
+    pub fn update_player_movement(ctx: &mut Context, board: &mut Gameboard) {
+        if !board.2.contains_key("player") {
+            return;
+        }
+
+        unsafe {
+            Self::update_with_fixed_steps(ctx, board);
+        }
+    }
+
+    fn update_with_fixed_steps(ctx: &mut Context, board: &mut Gameboard) {
+        unsafe {
+            if !KEYS_HELD.left && !KEYS_HELD.right {
+                return;
+            }
+
+            let (maxw, _) = board.0.size(ctx);
+            
+            if let Some(sprite) = board.2.get_mut("player") {
+                let current_pos = sprite.position(ctx).0;
+                
+                if KEYS_HELD.left && current_pos > 5.0 {
+                    sprite.adjustments().0 -= STEP;
+                }
+                if KEYS_HELD.right && current_pos < maxw - sprite.dimensions().0 - 5.0 {
+                    sprite.adjustments().0 += STEP;
+                }
+            }
+        }
+    }
+
+    fn update_with_time_based_movement(ctx: &mut Context, board: &mut Gameboard) {
+        unsafe {
+            if !KEYS_HELD.left && !KEYS_HELD.right {
+                return;
+            }
+
+            let now = Instant::now();
+            let delta_time = if let Some(last_time) = LAST_UPDATE_TIME {
+                now.duration_since(last_time).as_secs_f32()
+            } else {
+                0.0
+            };
+            LAST_UPDATE_TIME = Some(now);
+
+            let (maxw, _) = board.0.size(ctx);
+            
+            if let Some(sprite) = board.2.get_mut("player") {
+                let current_pos = sprite.position(ctx).0;
+                let movement_delta = MOVEMENT_SPEED * delta_time;
+                
+                if KEYS_HELD.left && current_pos > 5.0 {
+                    sprite.adjustments().0 -= movement_delta;
+                }
+                if KEYS_HELD.right && current_pos < maxw - sprite.dimensions().0 - 5.0 {
+                    sprite.adjustments().0 += movement_delta;
+                }
+            }
+        }
     }
 
     pub fn handle_player_action(ctx: &mut Context, board: &mut Gameboard, action: SpriteAction) {
@@ -31,34 +145,15 @@ impl PlayerManager {
             return;
         }
         
-        let (maxw, _) = board.0.size(ctx);
-        
         match action {
             SpriteAction::Shoot => {
                 Self::handle_shooting(ctx, board);
             }
-            _ => {
-                if let Some(sprite) = board.2.get_mut("player") {
-                    match action {
-                        SpriteAction::MoveLeft => {
-                            if sprite.position(ctx).0 > 5.0 {
-                                sprite.adjustments().0 -= STEP;
-                            }
-                        }
-                        SpriteAction::MoveRight => {
-                            if sprite.position(ctx).0 < maxw - sprite.dimensions().0 - 5.0 {
-                                sprite.adjustments().0 += STEP;
-                            }
-                        }
-                        _ => {}
-                    }
-                }
-            }
+            _ => {}
         }
     }
 
     fn handle_shooting(ctx: &mut Context, board: &mut Gameboard) {
-
         let player_info = if let Some(sprite) = board.2.get_mut("player") {
             Some((sprite.position(ctx), *sprite.dimensions()))
         } else {
