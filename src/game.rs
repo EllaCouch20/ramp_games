@@ -7,22 +7,24 @@ use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextS
 
 use pelican_game_engine::{AspectRatio, Sprite, Gameboard, SpriteAction};
 
-use std::collections::VecDeque;
+use std::collections::HashMap;
 use std::time::{Duration, Instant};
-use std::sync::atomic::{AtomicU32, Ordering};
 
 use crate::fly::EnemyManager;
 use crate::player::PlayerManager;
 
+use crate::server::ServerEvent;
+
+
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 const RESPAWN_DELAY: Duration = Duration::from_millis(500);
 
-static mut EXPLOSIONS: Option<VecDeque<(String, Instant)>> = None;
+static mut EXPLOSIONS: Option<HashMap<String, Instant>> = None;
 static mut ENEMIES_CREATED: bool = false;
 static mut PLAYER_RESPAWN_TIME: Option<Instant> = None;
 static mut PLAYER_IS_DEAD: bool = false;
-static SCORE: AtomicU32 = AtomicU32::new(0);
-static LIVES: AtomicU32 = AtomicU32::new(4);
+static mut SCORE: u32 = 0;
+static mut LIVES: u32 = 4;
 
 #[derive(Debug)]
 pub struct Galaga;
@@ -31,13 +33,12 @@ impl Galaga {
     pub fn new(ctx: &mut Context) -> Gameboard {
         unsafe {
             ENEMIES_CREATED = false;
-            EXPLOSIONS = Some(VecDeque::new());
+            EXPLOSIONS = Some(HashMap::new());
             PLAYER_RESPAWN_TIME = None;
             PLAYER_IS_DEAD = false;
+            SCORE = 0;
+            LIVES = 4;
         }
-        
-        SCORE.store(0, Ordering::Relaxed);
-        LIVES.store(4, Ordering::Relaxed);
 
         EnemyManager::initialize();
         PlayerManager::initialize();
@@ -52,38 +53,52 @@ impl Galaga {
     }
 
     fn create_score_display(ctx: &mut Context, board: &mut Gameboard) {
-        println!("Score: {} | Lives: {}", SCORE.load(Ordering::Relaxed), LIVES.load(Ordering::Relaxed));
+        unsafe {
+            let score = SCORE;
+            let lives = LIVES;
+            println!("Score: {} | Lives: {}", score, lives);
+        }
     }
 
     fn update_score_display(ctx: &mut Context, board: &mut Gameboard) {
-        println!("Score: {} | Lives: {}", SCORE.load(Ordering::Relaxed), LIVES.load(Ordering::Relaxed));
+        unsafe {
+            let score = SCORE;
+            let lives = LIVES;
+            println!("Score: {} | Lives: {}", score, lives);
+        }
     }
 
     fn add_score(ctx: &mut Context, board: &mut Gameboard, points: u32) {
-        let new_score = SCORE.fetch_add(points, Ordering::Relaxed) + points;
-        println!("*** ENEMY DESTROYED! Score: {} (+{} points) ***", new_score, points);
+        unsafe {
+            SCORE += points;
+            let score = SCORE;
+            println!("*** ENEMY DESTROYED! Score: {} (+{} points) ***", score, points);
+        }
         Self::update_score_display(ctx, board);
     }
 
     fn lose_life(ctx: &mut Context, board: &mut Gameboard) {
-        let remaining_lives = LIVES.fetch_sub(1, Ordering::Relaxed) - 1;
-        println!("*** PLAYER HIT! Lives remaining: {} ***", remaining_lives);
-        
-        if remaining_lives == 0 {
-            println!("*** GAME OVER! ***");
+        unsafe {
+            LIVES -= 1;
+            let lives = LIVES;
+            println!("*** PLAYER HIT! Lives remaining: {} ***", lives);
+            
+            if LIVES == 0 {
+                println!("*** GAME OVER! ***");
+            }
         }
         
         Self::update_score_display(ctx, board);
     }
 
     fn respawn_player(ctx: &mut Context, board: &mut Gameboard) {
-        if LIVES.load(Ordering::Relaxed) > 0 {
-            let player = PlayerManager::create_player(ctx);
-            board.insert_sprite(ctx, player);
-            println!("*** PLAYER RESPAWNED! ***");
-        }
-        
         unsafe {
+            if LIVES > 0 {
+                let player = PlayerManager::create_player(ctx);
+                board.insert_sprite(ctx, player);
+                println!("*** PLAYER RESPAWNED! ***");
+            }
+            
             PLAYER_IS_DEAD = false;
             PLAYER_RESPAWN_TIME = None;
         }
@@ -116,7 +131,7 @@ impl Galaga {
 
         unsafe {
             if let Some(ref mut explosions) = EXPLOSIONS {
-                explosions.push_back((id, Instant::now()));
+                explosions.insert(id, Instant::now());
             }
         }
     }
@@ -148,7 +163,6 @@ impl Galaga {
                 }
             }
 
-            // *** ADD THIS LINE FOR SMOOTH MOVEMENT ***
             unsafe {
                 if !PLAYER_IS_DEAD {
                     PlayerManager::update_player_movement(ctx, board);
@@ -246,13 +260,18 @@ impl Galaga {
 
             unsafe {
                 if let Some(ref mut explosions) = EXPLOSIONS {
-                    while let Some((id, time)) = explosions.front() {
-                        if Instant::now().duration_since(*time) >= EXPLOSION_DURATION {
-                            Self::remove_sprite_from_board(ctx, board, id);
-                            explosions.pop_front();
-                        } else {
-                            break;
+                    let now = Instant::now();
+                    let mut expired_explosions = Vec::new();
+                    
+                    for (id, time) in explosions.iter() {
+                        if now.duration_since(*time) >= EXPLOSION_DURATION {
+                            expired_explosions.push(id.clone());
                         }
+                    }
+                    
+                    for id in expired_explosions {
+                        Self::remove_sprite_from_board(ctx, board, &id);
+                        explosions.remove(&id);
                     }
                 }
             }

@@ -6,13 +6,26 @@ use std::time::{Duration, Instant};
 
 const STEP: f32 = 1.5; 
 const BULLET_SPEED: f32 = 8.0;
-const SHOOT_COOLDOWN: Duration = Duration::from_millis(500);
-
+const SHOOT_COOLDOWN: Duration = Duration::from_millis(200);
 const MOVEMENT_SPEED: f32 = 300.0; 
 
-static mut LAST_SHOT_TIME: Option<Instant> = None;
-static mut KEYS_HELD: KeysHeld = KeysHeld::new();
-static mut LAST_UPDATE_TIME: Option<Instant> = None;
+#[derive(Clone, Copy, Debug)]
+enum PlayerState {
+    Idle { last_shot: Option<Instant> },
+    MovingLeft { last_shot: Option<Instant>, speed: f32 },
+    MovingRight { last_shot: Option<Instant>, speed: f32 },
+    MovingBoth { last_shot: Option<Instant>, left_speed: f32, right_speed: f32 },
+    Shooting { direction: MovementDirection, shot_time: Instant },
+    Destroyed,
+}
+
+#[derive(Clone, Copy, Debug)]
+enum MovementDirection {
+    None,
+    Left,
+    Right,
+    Both,
+}
 
 #[derive(Clone, Copy)]
 struct KeysHeld {
@@ -22,19 +35,29 @@ struct KeysHeld {
 
 impl KeysHeld {
     const fn new() -> Self {
-        Self {
-            left: false,
-            right: false,
+        Self { left: false, right: false }
+    }
+    
+    fn to_direction(&self) -> MovementDirection {
+        match (self.left, self.right) {
+            (true, true) => MovementDirection::Both,
+            (true, false) => MovementDirection::Left,
+            (false, true) => MovementDirection::Right,
+            (false, false) => MovementDirection::None,
         }
     }
 }
+
+static mut PLAYER_STATE: PlayerState = PlayerState::Idle { last_shot: None };
+static mut KEYS_HELD: KeysHeld = KeysHeld::new();
+static mut LAST_UPDATE_TIME: Option<Instant> = None;
 
 pub struct PlayerManager;
 
 impl PlayerManager {
     pub fn initialize() {
         unsafe {
-            LAST_SHOT_TIME = None;
+            PLAYER_STATE = PlayerState::Idle { last_shot: None };
             KEYS_HELD = KeysHeld::new();
             LAST_UPDATE_TIME = Some(Instant::now());
         }
@@ -51,6 +74,7 @@ impl PlayerManager {
         let mut handled = false;
         
         unsafe {
+            // Update key states
             match keyboard_event {
                 KeyboardEvent { state: KeyboardState::Pressed, key: Key::Named(NamedKey::ArrowLeft) } => {
                     KEYS_HELD.left = true;
@@ -74,9 +98,75 @@ impl PlayerManager {
                 }
                 _ => {}
             }
+            
+            Self::update_player_state();
         }
         
         handled
+    }
+
+    // Clever match statement to handle state transitions
+    fn update_player_state() {
+        unsafe {
+            let keys_copy = KEYS_HELD;
+            let direction = keys_copy.to_direction();
+            let now = Instant::now();
+            
+            PLAYER_STATE = match (PLAYER_STATE, direction) {
+                (PlayerState::Idle { last_shot }, MovementDirection::Left) => 
+                    PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::Idle { last_shot }, MovementDirection::Right) => 
+                    PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::Idle { last_shot }, MovementDirection::Both) => 
+                    PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::None) => 
+                    PlayerState::Idle { last_shot },
+                
+                (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::Right) => 
+                    PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::Both) => 
+                    PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingRight { last_shot, .. }, MovementDirection::None) => 
+                    PlayerState::Idle { last_shot },
+                
+                (PlayerState::MovingRight { last_shot, .. }, MovementDirection::Left) => 
+                    PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingRight { last_shot, .. }, MovementDirection::Both) => 
+                    PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::None) => 
+                    PlayerState::Idle { last_shot },
+                
+                (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::Left) => 
+                    PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::Right) => 
+                    PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
+                
+                (PlayerState::Shooting { direction, shot_time }, _) => {
+                    if now.duration_since(shot_time) > Duration::from_millis(50) {
+                        match direction {
+                            MovementDirection::None => PlayerState::Idle { last_shot: Some(shot_time) },
+                            MovementDirection::Left => PlayerState::MovingLeft { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
+                            MovementDirection::Right => PlayerState::MovingRight { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
+                            MovementDirection::Both => PlayerState::MovingBoth { last_shot: Some(shot_time), left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
+                        }
+                    } else {
+                        PlayerState::Shooting { direction, shot_time }
+                    }
+                }
+                
+                (PlayerState::Destroyed, _) => PlayerState::Destroyed,
+                
+                (current_state, _) => current_state,
+            };
+        }
     }
 
     pub fn update_player_movement(ctx: &mut Context, board: &mut Gameboard) {
@@ -85,56 +175,50 @@ impl PlayerManager {
         }
 
         unsafe {
-            Self::update_with_fixed_steps(ctx, board);
+            Self::handle_movement_by_state(ctx, board);
         }
     }
 
-    fn update_with_fixed_steps(ctx: &mut Context, board: &mut Gameboard) {
+    // Clever match to handle movement based on current state
+    fn handle_movement_by_state(ctx: &mut Context, board: &mut Gameboard) {
         unsafe {
-            if !KEYS_HELD.left && !KEYS_HELD.right {
-                return;
-            }
-
             let (maxw, _) = board.0.size(ctx);
             
             if let Some(sprite) = board.2.get_mut("player") {
                 let current_pos = sprite.position(ctx).0;
                 
-                if KEYS_HELD.left && current_pos > 5.0 {
-                    sprite.adjustments().0 -= STEP;
-                }
-                if KEYS_HELD.right && current_pos < maxw - sprite.dimensions().0 - 5.0 {
-                    sprite.adjustments().0 += STEP;
-                }
-            }
-        }
-    }
-
-    fn update_with_time_based_movement(ctx: &mut Context, board: &mut Gameboard) {
-        unsafe {
-            if !KEYS_HELD.left && !KEYS_HELD.right {
-                return;
-            }
-
-            let now = Instant::now();
-            let delta_time = if let Some(last_time) = LAST_UPDATE_TIME {
-                now.duration_since(last_time).as_secs_f32()
-            } else {
-                0.0
-            };
-            LAST_UPDATE_TIME = Some(now);
-
-            let (maxw, _) = board.0.size(ctx);
-            
-            if let Some(sprite) = board.2.get_mut("player") {
-                let current_pos = sprite.position(ctx).0;
-                let movement_delta = MOVEMENT_SPEED * delta_time;
-                
-                if KEYS_HELD.left && current_pos > 5.0 {
-                    sprite.adjustments().0 -= movement_delta;
-                }
-                if KEYS_HELD.right && current_pos < maxw - sprite.dimensions().0 - 5.0 {
-                    sprite.adjustments().0 += movement_delta;
+                match PLAYER_STATE {
+                    PlayerState::MovingLeft { speed, .. } => {
+                        if current_pos > 5.0 {
+                            sprite.adjustments().0 -= STEP;
+                        }
+                    }
+                    
+                    PlayerState::MovingRight { speed, .. } => {
+                        if current_pos < maxw - sprite.dimensions().0 - 5.0 {
+                            sprite.adjustments().0 += STEP;
+                        }
+                    }
+                    
+                    PlayerState::MovingBoth { left_speed, right_speed, .. } => {
+                        
+                    }
+                    
+                    PlayerState::Shooting { direction, .. } => {
+                        match direction {
+                            MovementDirection::Left if current_pos > 5.0 => {
+                                sprite.adjustments().0 -= STEP * 0.5;
+                            }
+                            MovementDirection::Right if current_pos < maxw - sprite.dimensions().0 - 5.0 => {
+                                sprite.adjustments().0 += STEP * 0.5;
+                            }
+                            _ => {}
+                        }
+                    }
+                    
+                    PlayerState::Idle { .. } | PlayerState::Destroyed => {
+                        
+                    }
                 }
             }
         }
@@ -154,28 +238,46 @@ impl PlayerManager {
     }
 
     fn handle_shooting(ctx: &mut Context, board: &mut Gameboard) {
-        let player_info = if let Some(sprite) = board.2.get_mut("player") {
-            Some((sprite.position(ctx), *sprite.dimensions()))
-        } else {
-            None
-        };
+        unsafe {
+            let can_shoot = match PLAYER_STATE {
+                PlayerState::Idle { last_shot } | 
+                PlayerState::MovingLeft { last_shot, .. } | 
+                PlayerState::MovingRight { last_shot, .. } | 
+                PlayerState::MovingBoth { last_shot, .. } => {
+                    if let Some(last) = last_shot {
+                        Instant::now().duration_since(last) >= SHOOT_COOLDOWN
+                    } else {
+                        true
+                    }
+                }
+                PlayerState::Shooting { shot_time, .. } => {
+                    Instant::now().duration_since(shot_time) >= SHOOT_COOLDOWN
+                }
+                PlayerState::Destroyed => false,
+            };
+            
+            if can_shoot {
+                let player_info = if let Some(sprite) = board.2.get_mut("player") {
+                    Some((sprite.position(ctx), *sprite.dimensions()))
+                } else {
+                    None
+                };
 
-        if let Some((pos, size)) = player_info {
-            Self::shoot(ctx, board, pos, size);
+                if let Some((pos, size)) = player_info {
+                    Self::shoot(ctx, board, pos, size);
+                    
+                    let keys_copy = KEYS_HELD;
+                    let current_direction = keys_copy.to_direction();
+                    PLAYER_STATE = PlayerState::Shooting { 
+                        direction: current_direction, 
+                        shot_time: Instant::now() 
+                    };
+                }
+            }
         }
     }
 
     fn shoot(ctx: &mut Context, board: &mut Gameboard, player_pos: (f32, f32), player_size: (f32, f32)) {
-        let now = Instant::now();
-        unsafe {
-            if let Some(last) = LAST_SHOT_TIME {
-                if now.duration_since(last) < SHOOT_COOLDOWN {
-                    return;
-                }
-            }
-            LAST_SHOT_TIME = Some(now);
-        }
-
         let b_size = (15.0, 15.0);
         let (x, y) = player_pos;
         let bullet_id = format!("bullet_{}", uuid::Uuid::new_v4());
@@ -190,6 +292,22 @@ impl PlayerManager {
             ),
         );
         board.insert_sprite(ctx, bullet);
+    }
+
+    pub fn get_player_state() -> PlayerState {
+        unsafe { PLAYER_STATE }
+    }
+
+    pub fn destroy_player() {
+        unsafe {
+            PLAYER_STATE = PlayerState::Destroyed;
+        }
+    }
+
+    pub fn is_player_destroyed() -> bool {
+        unsafe {
+            matches!(PLAYER_STATE, PlayerState::Destroyed)
+        }
     }
 
     pub fn update_bullets(ctx: &mut Context, board: &mut Gameboard) -> Vec<String> {

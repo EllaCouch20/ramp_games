@@ -12,6 +12,9 @@ use pelican_ui::include_assets;
 mod fly;
 mod player;
 mod game;
+mod server;
+
+
 use game::Galaga;
 
 pub struct MyApp;
