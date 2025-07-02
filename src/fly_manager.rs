@@ -139,7 +139,7 @@ impl EnemyManager {
 
 pub fn update_enemy_pulse(ctx: &mut Context, board: &mut Gameboard) {
     let mut globals = ENEMY_GLOBALS.get().unwrap().lock().unwrap();
-    let base_positions = globals.base_positions.clone(); // Clone the HashMap
+    let base_positions = globals.base_positions.clone(); 
     EnemyMovement::update_enemy_pulse(ctx, board, &mut globals.pulse_time, &base_positions);
 }
 

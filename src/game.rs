@@ -12,9 +12,9 @@ use std::time::{Duration, Instant};
 
 pub use crate::fly_manager::EnemyManager;
 pub use crate::fly_state::{EnemyState, EnemyGlobalState};
+pub use crate::collision::CollisionManager;
 
 use crate::player::PlayerManager;
-
 use crate::server::ServerEvent;
 
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
@@ -106,39 +106,6 @@ impl Galaga {
         }
     }
 
-    fn check_collision(
-        sprite1_pos: (f32, f32),
-        sprite1_size: (f32, f32),
-        sprite2_pos: (f32, f32),
-        sprite2_size: (f32, f32),
-    ) -> bool {
-        let (x1, y1) = sprite1_pos;
-        let (w1, h1) = sprite1_size;
-        let (x2, y2) = sprite2_pos;
-        let (w2, h2) = sprite2_size;
-
-        x1 < x2 + w2 && x1 + w1 > x2 && y1 < y2 + h2 && y1 + h1 > y2
-    }
-
-    fn spawn_explosion(ctx: &mut Context, board: &mut Gameboard, pos: (f32, f32)) {
-        let id = format!("explosion_{}", uuid::Uuid::new_v4());
-        let sprite = Sprite::new(
-            ctx,
-            &id,
-            "explosion.png",
-            (50.0, 50.0),
-            (Offset::Static(pos.0), Offset::Static(pos.1)),
-        );
-        board.insert_sprite(ctx, sprite);
-
-        unsafe {
-            if let Some(ref mut explosions) = EXPLOSIONS {
-                explosions.insert(id, Instant::now());
-            }
-        }
-        println!("Spawned explosion at {:?}", pos);
-    }
-
     fn remove_sprite_from_board(ctx: &mut Context, board: &mut Gameboard, sprite_id: &str) {
         if board.2.remove(sprite_id).is_some() {
             board.0.0.remove(sprite_id);
@@ -180,133 +147,51 @@ impl Galaga {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
             }
 
+            // Handle player-enemy bullet collisions
             unsafe {
                 if !PLAYER_IS_DEAD {
-                    let active_enemy_bullets = EnemyManager::get_active_enemy_bullets(board, ctx);
-                    let mut player_hit = false;
-                    let mut player_hit_pos = (0.0, 0.0);
-                    let mut enemy_bullets_to_remove_from_collision = Vec::new();
+                    if let Some(ref mut explosions) = EXPLOSIONS {
+                        let (player_hit, player_hit_pos) = CollisionManager::handle_player_enemy_bullet_collisions(
+                            ctx, board, explosions
+                        );
 
-                    if let Some(player_sprite) = board.2.get_mut("player") {
-                        let player_pos = player_sprite.position(ctx);
-                        let player_size = *player_sprite.dimensions();
+                        if player_hit {
+                            Self::remove_sprite_from_board(ctx, board, "player");
+                            CollisionManager::spawn_explosion(ctx, board, player_hit_pos, explosions);
+                            Self::lose_life(ctx, board);
 
-                        for (bullet_id, bullet_pos, bullet_size) in active_enemy_bullets {
-                            if Self::check_collision(bullet_pos, bullet_size, player_pos, player_size) {
-                                player_hit = true;
-                                player_hit_pos = player_pos;
-                                enemy_bullets_to_remove_from_collision.push(bullet_id);
-                                break;
-                            }
+                            PLAYER_IS_DEAD = true;
+                            PLAYER_RESPAWN_TIME = Some(Instant::now() + EXPLOSION_DURATION);
+
+                            println!("PLAYER HIT!");
                         }
-                    }
-
-                    if player_hit {
-                        for bullet_id in enemy_bullets_to_remove_from_collision {
-                            Self::remove_sprite_from_board(ctx, board, &bullet_id);
-                        }
-
-                        Self::remove_sprite_from_board(ctx, board, "player");
-                        Self::spawn_explosion(ctx, board, player_hit_pos);
-                        Self::lose_life(ctx, board);
-
-                        PLAYER_IS_DEAD = true;
-                        PLAYER_RESPAWN_TIME = Some(Instant::now() + EXPLOSION_DURATION);
-
-                        println!("PLAYER HIT!");
                     }
                 }
             }
 
+            // Update player bullets
             let bullets_to_remove = PlayerManager::update_bullets(ctx, board);
-            let active_bullets = PlayerManager::get_active_bullets(board, ctx);
-            let active_enemy_bullets = EnemyManager::get_active_enemy_bullets(board, ctx);
-
             for bullet_id in &bullets_to_remove {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
             }
 
+            unsafe {
+                if let Some(ref mut explosions) = EXPLOSIONS {
+                    CollisionManager::handle_bullet_bullet_collisions(ctx, board, explosions);
 
-            let mut bullet_bullet_collisions = Vec::new();
+                    let collisions_count = CollisionManager::handle_player_bullet_enemy_collisions(
+                        ctx, board, explosions
+                    );
 
-            for (player_bullet_id, player_pos, player_size) in &active_bullets {
-                for (enemy_bullet_id, enemy_pos, enemy_size) in &active_enemy_bullets {
-                    if Self::check_collision(*player_pos, *player_size, *enemy_pos, *enemy_size) {
-                        bullet_bullet_collisions.push((
-                            player_bullet_id.clone(),
-                            enemy_bullet_id.clone(),
-                            (
-                                (player_pos.0 + enemy_pos.0) / 2.0,
-                                (player_pos.1 + enemy_pos.1) / 2.0,
-                            ),
-                        ));
+                    if collisions_count > 0 {
+                        Self::add_score(ctx, board, collisions_count * 100);
                     }
+
+                    CollisionManager::update_explosions(ctx, board, explosions);
                 }
-            }
-
-            for (player_bullet_id, enemy_bullet_id, explosion_pos) in bullet_bullet_collisions {
-                Self::remove_sprite_from_board(ctx, board, &player_bullet_id);
-                Self::remove_sprite_from_board(ctx, board, &enemy_bullet_id);
-                Self::spawn_explosion(ctx, board, explosion_pos);
-
-                println!(
-                    "Bullet–bullet collision: {} vs {} at {:?}",
-                    player_bullet_id, enemy_bullet_id, explosion_pos
-                );
-            }
-
-            let mut sprites_to_remove = Vec::new();
-            let mut explosions_to_spawn = Vec::new();
-            let mut collisions_count = 0;
-
-            for (bullet_id, bullet_pos, bullet_size) in active_bullets {
-                for (enemy_id, enemy_sprite) in board.2.iter_mut() {
-                    if EnemyManager::is_enemy(enemy_id) {
-                        let enemy_pos = enemy_sprite.position(ctx);
-                        let enemy_size = *enemy_sprite.dimensions();
-
-                        if Self::check_collision(bullet_pos, bullet_size, enemy_pos, enemy_size) {
-                            explosions_to_spawn.push(enemy_pos);
-                            sprites_to_remove.push(bullet_id.clone());
-                            sprites_to_remove.push(enemy_id.clone());
-                            collisions_count += 1;
-                            break;
-                        }
-                    }
-                }
-            }
-
-            if collisions_count > 0 {
-                Self::add_score(ctx, board, collisions_count * 100);
-            }
-
-            for pos in explosions_to_spawn {
-                Self::spawn_explosion(ctx, board, pos);
-            }
-
-            for sprite_id in sprites_to_remove {
-                Self::remove_sprite_from_board(ctx, board, &sprite_id);
             }
 
             EnemyManager::check_and_manage_enemy_state(ctx, board);
-
-            unsafe {
-                if let Some(ref mut explosions) = EXPLOSIONS {
-                    let now = Instant::now();
-                    let mut expired_explosions = Vec::new();
-
-                    for (id, time) in explosions.iter() {
-                        if now.duration_since(*time) >= EXPLOSION_DURATION {
-                            expired_explosions.push(id.clone());
-                        }
-                    }
-
-                    for id in expired_explosions {
-                        Self::remove_sprite_from_board(ctx, board, &id);
-                        explosions.remove(&id);
-                    }
-                }
-            }
 
             let sprite_ids: Vec<String> = board.2.keys().cloned().collect();
             for id in sprite_ids {

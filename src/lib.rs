@@ -18,7 +18,7 @@ mod fly_movement;
 mod fly_utils;
 mod fly_patterns;
 mod fly_state;
-
+mod collision;
 
 use game::Galaga;
 
