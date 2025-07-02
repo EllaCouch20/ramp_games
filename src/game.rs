@@ -15,7 +15,6 @@ use crate::player::PlayerManager;
 
 use crate::server::ServerEvent;
 
-
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 const RESPAWN_DELAY: Duration = Duration::from_millis(500);
 
@@ -57,7 +56,6 @@ impl Galaga {
             let score = SCORE;
             let lives = LIVES;
             let wave = EnemyManager::get_wave_count();
-            println!("Score: {} | Lives: {} | Wave: {}", score, lives, wave);
         }
     }
 
@@ -66,7 +64,6 @@ impl Galaga {
             let score = SCORE;
             let lives = LIVES;
             let wave = EnemyManager::get_wave_count();
-            println!("Score: {} | Lives: {} | Wave: {}", score, lives, wave);
         }
     }
 
@@ -74,14 +71,15 @@ impl Galaga {
         unsafe {
             SCORE += points;
             let score = SCORE;
-            println!("*** ENEMY DESTROYED! Score: {} (+{} points) ***", score, points);
         }
         Self::update_score_display(ctx, board);
     }
 
     fn lose_life(ctx: &mut Context, board: &mut Gameboard) {
         unsafe {
-            LIVES -= 1;
+            if LIVES > 0 {
+                LIVES -= 1;
+            }
             let lives = LIVES;
             println!("*** PLAYER HIT! Lives remaining: {} ***", lives);
 
@@ -136,6 +134,7 @@ impl Galaga {
                 explosions.insert(id, Instant::now());
             }
         }
+        println!("Spawned explosion at {:?}", pos);
     }
 
     fn remove_sprite_from_board(ctx: &mut Context, board: &mut Gameboard, sprite_id: &str) {
@@ -219,9 +218,39 @@ impl Galaga {
 
             let bullets_to_remove = PlayerManager::update_bullets(ctx, board);
             let active_bullets = PlayerManager::get_active_bullets(board, ctx);
+            let active_enemy_bullets = EnemyManager::get_active_enemy_bullets(board, ctx);
 
             for bullet_id in &bullets_to_remove {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
+            }
+
+
+            let mut bullet_bullet_collisions = Vec::new();
+
+            for (player_bullet_id, player_pos, player_size) in &active_bullets {
+                for (enemy_bullet_id, enemy_pos, enemy_size) in &active_enemy_bullets {
+                    if Self::check_collision(*player_pos, *player_size, *enemy_pos, *enemy_size) {
+                        bullet_bullet_collisions.push((
+                            player_bullet_id.clone(),
+                            enemy_bullet_id.clone(),
+                            (
+                                (player_pos.0 + enemy_pos.0) / 2.0,
+                                (player_pos.1 + enemy_pos.1) / 2.0,
+                            ),
+                        ));
+                    }
+                }
+            }
+
+            for (player_bullet_id, enemy_bullet_id, explosion_pos) in bullet_bullet_collisions {
+                Self::remove_sprite_from_board(ctx, board, &player_bullet_id);
+                Self::remove_sprite_from_board(ctx, board, &enemy_bullet_id);
+                Self::spawn_explosion(ctx, board, explosion_pos);
+
+                println!(
+                    "Bullet–bullet collision: {} vs {} at {:?}",
+                    player_bullet_id, enemy_bullet_id, explosion_pos
+                );
             }
 
             let mut sprites_to_remove = Vec::new();

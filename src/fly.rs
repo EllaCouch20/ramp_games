@@ -9,8 +9,8 @@ use rand::Rng;
 const PULSE_AMPLITUDE: f32 = 5.0;
 const PULSE_SPEED: f32 = 0.1;
 const ENEMY_BULLET_SPEED: f32 = 6.0;
-const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(1500); // All enemies can shoot
-const ENEMY_SHOOT_CHANCE: f32 = 0.3; // Shooting chance for all enemies
+const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(1500);
+const ENEMY_SHOOT_CHANCE: f32 = 0.3;
 
 #[derive(Debug, Clone, PartialEq)]
 pub enum EnemyState {
@@ -25,7 +25,7 @@ pub enum EnemyState {
 struct EnemyGlobalState {
     base_positions: HashMap<String, (f32, f32)>,
     pulse_time: f32,
-    enemy_last_shot_times: HashMap<String, Instant>, // Track all enemies, not just tikis
+    enemy_last_shot_times: HashMap<String, Instant>,
     enemy_state: EnemyState,
     wave_count: u32,
 }
@@ -35,7 +35,7 @@ impl Default for EnemyGlobalState {
         Self {
             base_positions: HashMap::new(),
             pulse_time: 0.0,
-            enemy_last_shot_times: HashMap::new(), // Track all enemies
+            enemy_last_shot_times: HashMap::new(),
             enemy_state: EnemyState::Initial,
             wave_count: 0,
         }
@@ -75,46 +75,37 @@ impl EnemyManager {
 
         let mut globals = ENEMY_GLOBALS.get().unwrap().lock().unwrap();
 
-        // Clear old tracking data
         globals.base_positions.clear();
         globals.enemy_last_shot_times.clear();
 
         let enemies = match globals.enemy_state {
             EnemyState::Initial => {
-                println!("*** SPAWNING INITIAL ENEMY WAVE ***");
                 globals.enemy_state = EnemyState::Pattern1;
                 Self::get_initial_pattern(board_width, board_height)
             },
             EnemyState::Pattern1 => {
-                println!("*** SPAWNING PATTERN 1 ENEMIES ***");
                 globals.enemy_state = EnemyState::Pattern2;
                 globals.wave_count += 1;
                 Self::get_pattern_1(board_width, board_height)
             },
             EnemyState::Pattern2 => {
-                println!("*** SPAWNING PATTERN 2 ENEMIES ***");
                 globals.enemy_state = EnemyState::Pattern3;
                 globals.wave_count += 1;
                 Self::get_pattern_2(board_width, board_height)
             },
             EnemyState::Pattern3 => {
-                println!("*** SPAWNING PATTERN 3 ENEMIES ***");
                 globals.enemy_state = EnemyState::Pattern4;
                 globals.wave_count += 1;
                 Self::get_pattern_3(board_width, board_height)
             },
             EnemyState::Pattern4 => {
-                println!("*** SPAWNING PATTERN 4 ENEMIES ***");
-                globals.enemy_state = EnemyState::Pattern1; // Loop back to Pattern1
+                globals.enemy_state = EnemyState::Pattern1;
                 globals.wave_count += 1;
                 Self::get_pattern_4(board_width, board_height)
             },
             EnemyState::AllDestroyed => {
-                println!("*** ALL ENEMIES DESTROYED - RESPAWNING ***");
-                // Don't change the state here, let it continue with the current pattern cycle
                 globals.wave_count += 1;
-                
-                // Continue with the next pattern in sequence
+
                 match globals.wave_count % 4 {
                     1 => {
                         globals.enemy_state = EnemyState::Pattern1;
@@ -146,7 +137,6 @@ impl EnemyManager {
 
             globals.base_positions.insert(id.to_string(), (x, y));
 
-            // Track ALL enemies for shooting, not just tikis
             if Self::is_enemy(id) {
                 globals.enemy_last_shot_times.insert(id.to_string(), Instant::now());
             }
@@ -230,11 +220,9 @@ impl EnemyManager {
     }
 
     fn get_pattern_4(board_width: f32, board_height: f32) -> Vec<(&'static str, &'static str, f32, f32)> {
-        // Random chaos formation
         let mut enemies = Vec::new();
         let mut rng = rand::thread_rng();
 
-        // Create b2 enemies
         for i in 1..=6 {
             let x = rng.gen_range(0.1..0.9) * board_width;
             let y = rng.gen_range(0.05..0.2) * board_height;
@@ -242,7 +230,6 @@ impl EnemyManager {
             enemies.push((id, "b-2.png", x, y));
         }
 
-        // Create tiki enemies
         for i in 1..=8 {
             let x = rng.gen_range(0.1..0.9) * board_width;
             let y = rng.gen_range(0.2..0.35) * board_height;
@@ -250,7 +237,6 @@ impl EnemyManager {
             enemies.push((id, "tiki_fly.png", x, y));
         }
 
-        // Create northrop enemies
         for i in 1..=5 {
             let x = rng.gen_range(0.1..0.9) * board_width;
             let y = rng.gen_range(0.35..0.45) * board_height;
@@ -267,7 +253,6 @@ impl EnemyManager {
         let mut globals = ENEMY_GLOBALS.get().unwrap().lock().unwrap();
         match globals.enemy_state {
             EnemyState::AllDestroyed => {
-                // Already handled in create_enemies
                 return;
             },
             _ => {
@@ -310,7 +295,6 @@ impl EnemyManager {
         let pulse_scale = (globals.pulse_time.sin() + 1.0) * 0.5;
         let pulse_offset = pulse_scale * PULSE_AMPLITUDE;
 
-        // Calculate center of all enemies
         if globals.base_positions.is_empty() {
             return;
         }
@@ -445,7 +429,6 @@ impl EnemyManager {
             let mut globals = globals.lock().unwrap();
             globals.base_positions.remove(enemy_id);
 
-            // Remove from shooting tracking for any enemy type
             globals.enemy_last_shot_times.remove(enemy_id);
         }
     }
