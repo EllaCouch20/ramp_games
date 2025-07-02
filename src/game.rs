@@ -10,7 +10,9 @@ use pelican_game_engine::{AspectRatio, Sprite, Gameboard, SpriteAction};
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-use crate::fly::EnemyManager;
+pub use crate::fly_manager::EnemyManager;
+pub use crate::fly_state::{EnemyState, EnemyGlobalState};
+
 use crate::player::PlayerManager;
 
 use crate::server::ServerEvent;

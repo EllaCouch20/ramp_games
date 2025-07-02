@@ -9,10 +9,15 @@ use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey};
 use std::collections::BTreeMap;
 use std::ptr::addr_of_mut;
 use pelican_ui::include_assets;
-mod fly;
 mod player;
 mod game;
 mod server;
+mod fly_manager;
+mod fly_bullets;
+mod fly_movement;
+mod fly_utils;
+mod fly_patterns;
+mod fly_state;
 
 
 use game::Galaga;
