@@ -46,9 +46,9 @@ impl Galaga {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = PlayerManager::create_player(ctx);
         gameboard.insert_sprite(ctx, player);
-        
+
         Self::create_score_display(ctx, &mut gameboard);
-        
+
         gameboard
     }
 
@@ -56,7 +56,8 @@ impl Galaga {
         unsafe {
             let score = SCORE;
             let lives = LIVES;
-            println!("Score: {} | Lives: {}", score, lives);
+            let wave = EnemyManager::get_wave_count();
+            println!("Score: {} | Lives: {} | Wave: {}", score, lives, wave);
         }
     }
 
@@ -64,7 +65,8 @@ impl Galaga {
         unsafe {
             let score = SCORE;
             let lives = LIVES;
-            println!("Score: {} | Lives: {}", score, lives);
+            let wave = EnemyManager::get_wave_count();
+            println!("Score: {} | Lives: {} | Wave: {}", score, lives, wave);
         }
     }
 
@@ -82,12 +84,12 @@ impl Galaga {
             LIVES -= 1;
             let lives = LIVES;
             println!("*** PLAYER HIT! Lives remaining: {} ***", lives);
-            
+
             if LIVES == 0 {
                 println!("*** GAME OVER! ***");
             }
         }
-        
+
         Self::update_score_display(ctx, board);
     }
 
@@ -98,7 +100,7 @@ impl Galaga {
                 board.insert_sprite(ctx, player);
                 println!("*** PLAYER RESPAWNED! ***");
             }
-            
+
             PLAYER_IS_DEAD = false;
             PLAYER_RESPAWN_TIME = None;
         }
@@ -139,7 +141,7 @@ impl Galaga {
     fn remove_sprite_from_board(ctx: &mut Context, board: &mut Gameboard, sprite_id: &str) {
         if board.2.remove(sprite_id).is_some() {
             board.0.0.remove(sprite_id);
-            
+
             if EnemyManager::is_enemy(sprite_id) {
                 EnemyManager::remove_enemy_from_base_positions(sprite_id);
             }
@@ -170,25 +172,24 @@ impl Galaga {
             }
 
             EnemyManager::update_enemy_pulse(ctx, board);
-            
-            EnemyManager::update_tiki_shooting(ctx, board);
-            
+            EnemyManager::update_enemy_shooting(ctx, board);
+
             let enemy_bullets_to_remove = EnemyManager::update_enemy_bullets(ctx, board);
             for bullet_id in &enemy_bullets_to_remove {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
             }
-            
+
             unsafe {
                 if !PLAYER_IS_DEAD {
                     let active_enemy_bullets = EnemyManager::get_active_enemy_bullets(board, ctx);
                     let mut player_hit = false;
                     let mut player_hit_pos = (0.0, 0.0);
                     let mut enemy_bullets_to_remove_from_collision = Vec::new();
-                    
+
                     if let Some(player_sprite) = board.2.get_mut("player") {
                         let player_pos = player_sprite.position(ctx);
                         let player_size = *player_sprite.dimensions();
-                        
+
                         for (bullet_id, bullet_pos, bullet_size) in active_enemy_bullets {
                             if Self::check_collision(bullet_pos, bullet_size, player_pos, player_size) {
                                 player_hit = true;
@@ -198,21 +199,19 @@ impl Galaga {
                             }
                         }
                     }
-                    
+
                     if player_hit {
                         for bullet_id in enemy_bullets_to_remove_from_collision {
                             Self::remove_sprite_from_board(ctx, board, &bullet_id);
                         }
-                        
+
                         Self::remove_sprite_from_board(ctx, board, "player");
-                        
                         Self::spawn_explosion(ctx, board, player_hit_pos);
-                        
                         Self::lose_life(ctx, board);
-                        
+
                         PLAYER_IS_DEAD = true;
                         PLAYER_RESPAWN_TIME = Some(Instant::now() + EXPLOSION_DURATION);
-                        
+
                         println!("PLAYER HIT!");
                     }
                 }
@@ -258,17 +257,19 @@ impl Galaga {
                 Self::remove_sprite_from_board(ctx, board, &sprite_id);
             }
 
+            EnemyManager::check_and_manage_enemy_state(ctx, board);
+
             unsafe {
                 if let Some(ref mut explosions) = EXPLOSIONS {
                     let now = Instant::now();
                     let mut expired_explosions = Vec::new();
-                    
+
                     for (id, time) in explosions.iter() {
                         if now.duration_since(*time) >= EXPLOSION_DURATION {
                             expired_explosions.push(id.clone());
                         }
                     }
-                    
+
                     for id in expired_explosions {
                         Self::remove_sprite_from_board(ctx, board, &id);
                         explosions.remove(&id);

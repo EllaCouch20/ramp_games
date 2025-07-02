@@ -110,64 +110,61 @@ impl PlayerManager {
         unsafe {
             let keys_copy = KEYS_HELD;
             let direction = keys_copy.to_direction();
-            let now = Instant::now();
-            
+
             PLAYER_STATE = match (PLAYER_STATE, direction) {
                 (PlayerState::Idle { last_shot }, MovementDirection::Left) => 
                     PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::Idle { last_shot }, MovementDirection::Right) => 
                     PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::Idle { last_shot }, MovementDirection::Both) => 
                     PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::None) => 
                     PlayerState::Idle { last_shot },
-                
+
                 (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::Right) => 
                     PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingLeft { last_shot, .. }, MovementDirection::Both) => 
                     PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingRight { last_shot, .. }, MovementDirection::None) => 
                     PlayerState::Idle { last_shot },
-                
+
                 (PlayerState::MovingRight { last_shot, .. }, MovementDirection::Left) => 
                     PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingRight { last_shot, .. }, MovementDirection::Both) => 
                     PlayerState::MovingBoth { last_shot, left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::None) => 
                     PlayerState::Idle { last_shot },
-                
+
                 (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::Left) => 
                     PlayerState::MovingLeft { last_shot, speed: MOVEMENT_SPEED },
-                
+
                 (PlayerState::MovingBoth { last_shot, .. }, MovementDirection::Right) => 
                     PlayerState::MovingRight { last_shot, speed: MOVEMENT_SPEED },
-                
-                (PlayerState::Shooting { direction, shot_time }, _) => {
-                    if now.duration_since(shot_time) > Duration::from_millis(50) {
-                        match direction {
-                            MovementDirection::None => PlayerState::Idle { last_shot: Some(shot_time) },
-                            MovementDirection::Left => PlayerState::MovingLeft { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
-                            MovementDirection::Right => PlayerState::MovingRight { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
-                            MovementDirection::Both => PlayerState::MovingBoth { last_shot: Some(shot_time), left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
-                        }
-                    } else {
-                        PlayerState::Shooting { direction, shot_time }
+
+                (PlayerState::Destroyed, _) => PlayerState::Destroyed,
+
+                // Shooting state is handled as transient and ignored in state update
+                (PlayerState::Shooting { direction: _, shot_time }, _) => {
+                    match direction {
+                        MovementDirection::None => PlayerState::Idle { last_shot: Some(shot_time) },
+                        MovementDirection::Left => PlayerState::MovingLeft { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
+                        MovementDirection::Right => PlayerState::MovingRight { last_shot: Some(shot_time), speed: MOVEMENT_SPEED },
+                        MovementDirection::Both => PlayerState::MovingBoth { last_shot: Some(shot_time), left_speed: MOVEMENT_SPEED, right_speed: MOVEMENT_SPEED },
                     }
                 }
-                
-                (PlayerState::Destroyed, _) => PlayerState::Destroyed,
-                
+
                 (current_state, _) => current_state,
             };
         }
     }
+
 
     pub fn update_player_movement(ctx: &mut Context, board: &mut Gameboard) {
         if !board.2.contains_key("player") {
@@ -180,49 +177,41 @@ impl PlayerManager {
     }
 
     // Clever match to handle movement based on current state
-    fn handle_movement_by_state(ctx: &mut Context, board: &mut Gameboard) {
-        unsafe {
-            let (maxw, _) = board.0.size(ctx);
-            
-            if let Some(sprite) = board.2.get_mut("player") {
-                let current_pos = sprite.position(ctx).0;
-                
-                match PLAYER_STATE {
-                    PlayerState::MovingLeft { speed, .. } => {
-                        if current_pos > 5.0 {
-                            sprite.adjustments().0 -= STEP;
-                        }
+fn handle_movement_by_state(ctx: &mut Context, board: &mut Gameboard) {
+    unsafe {
+        let (maxw, _) = board.0.size(ctx);
+
+        if let Some(sprite) = board.2.get_mut("player") {
+            let current_pos = sprite.position(ctx).0;
+
+            match PLAYER_STATE {
+                PlayerState::MovingLeft { speed, .. } => {
+                    if current_pos > 5.0 {
+                        sprite.adjustments().0 -= STEP;
                     }
-                    
-                    PlayerState::MovingRight { speed, .. } => {
-                        if current_pos < maxw - sprite.dimensions().0 - 5.0 {
-                            sprite.adjustments().0 += STEP;
-                        }
+                }
+
+                PlayerState::MovingRight { speed, .. } => {
+                    if current_pos < maxw - sprite.dimensions().0 - 5.0 {
+                        sprite.adjustments().0 += STEP;
                     }
-                    
-                    PlayerState::MovingBoth { left_speed, right_speed, .. } => {
-                        
+                }
+
+                PlayerState::MovingBoth { left_speed, right_speed, .. } => {
+                    if current_pos > 5.0 && current_pos < maxw - sprite.dimensions().0 - 5.0 {
+                        // Simplified: average both directions cancels out, so no move
+                        // Optionally choose to move more dominantly one way
                     }
-                    
-                    PlayerState::Shooting { direction, .. } => {
-                        match direction {
-                            MovementDirection::Left if current_pos > 5.0 => {
-                                sprite.adjustments().0 -= STEP * 0.5;
-                            }
-                            MovementDirection::Right if current_pos < maxw - sprite.dimensions().0 - 5.0 => {
-                                sprite.adjustments().0 += STEP * 0.5;
-                            }
-                            _ => {}
-                        }
-                    }
-                    
-                    PlayerState::Idle { .. } | PlayerState::Destroyed => {
-                        
-                    }
+                }
+
+                PlayerState::Idle { .. } | PlayerState::Shooting { .. } | PlayerState::Destroyed => {
+                    // No movement in these states
                 }
             }
         }
     }
+}
+
 
     pub fn handle_player_action(ctx: &mut Context, board: &mut Gameboard, action: SpriteAction) {
         if !board.2.contains_key("player") {
