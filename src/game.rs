@@ -17,6 +17,8 @@ pub use crate::collision::CollisionManager;
 use crate::player::PlayerManager;
 use crate::server::{ServerEvent, GameServer, ServerEventHandler, GameAction};
 
+use crate::settings::GameSettings;
+
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 const RESPAWN_DELAY: Duration = Duration::from_millis(500);
 
@@ -28,6 +30,7 @@ static mut SCORE: u32 = 0;
 static mut LIVES: u32 = 4;
 static mut SERVER_EVENT_HANDLER: Option<ServerEventHandler> = None;
 static mut GAME_SERVER: Option<GameServer> = None;
+static mut GAME_SETTINGS: Option<GameSettings> = None;
 
 #[derive(Debug)]
 pub struct Galaga;
@@ -57,6 +60,7 @@ impl Galaga {
             PLAYER_IS_DEAD = false;
             SCORE = 0;
             LIVES = 4;
+            GAME_SETTINGS = Some(GameSettings::new()); 
         }
 
         EnemyManager::initialize();
@@ -142,15 +146,15 @@ impl Galaga {
                 if let Some(action) = event_handler.process_events_for_game() {
                     match action {
                         GameAction::MoveRight => {
-                            println!("🎮 Server input: Move Right");
+                            println!("Server input: Move Right");
                             PlayerManager::handle_server_move_right(ctx, board);
                         }
                         GameAction::MoveLeft => {
-                            println!("🎮 Server input: Move Left");
+                            println!("Server input: Move Left");
                             PlayerManager::handle_server_move_left(ctx, board);
                         }
                         GameAction::Shoot => {
-                            println!("🎮 Server input: Shoot");
+                            println!("Server input: Shoot");
                             PlayerManager::handle_server_shoot(ctx, board);
                         }
                     }
@@ -159,9 +163,28 @@ impl Galaga {
         }
     }
 
+    pub fn get_game_settings() -> Option<GameSettings> {
+        unsafe {
+            let settings_ptr = std::ptr::addr_of!(GAME_SETTINGS);
+            (*settings_ptr).clone()
+        }
+    }
+
+    pub fn update_game_settings<F>(updater: F) 
+    where
+        F: FnOnce(&mut GameSettings),
+    {
+        unsafe {
+            let settings_ptr = std::ptr::addr_of_mut!(GAME_SETTINGS);
+            if let Some(settings) = &mut *settings_ptr {
+                updater(settings);
+            }
+        }
+    }
+
     fn on_event(board: &mut Gameboard, ctx: &mut Context, event: &mut dyn Event) -> bool {
         if let Some(TickEvent) = event.downcast_ref::<TickEvent>() {
-            // Handle server input first
+
             Self::handle_server_input(ctx, board);
             
             unsafe {
@@ -193,29 +216,32 @@ impl Galaga {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
             }
 
-            // Handle player-enemy bullet collisions
             unsafe {
                 if !PLAYER_IS_DEAD {
-                    if let Some(ref mut explosions) = EXPLOSIONS {
-                        let (player_hit, player_hit_pos) = CollisionManager::handle_player_enemy_bullet_collisions(
-                            ctx, board, explosions
-                        );
+                    let settings_ptr = std::ptr::addr_of!(GAME_SETTINGS);
+                    let player_invincible = (*settings_ptr).as_ref().map(|s| s.player_invincible).unwrap_or(false);
+                    
+                    if !player_invincible {
+                        if let Some(ref mut explosions) = EXPLOSIONS {
+                            let (player_hit, player_hit_pos) = CollisionManager::handle_player_enemy_bullet_collisions(
+                                ctx, board, explosions
+                            );
 
-                        if player_hit {
-                            Self::remove_sprite_from_board(ctx, board, "player");
-                            CollisionManager::spawn_explosion(ctx, board, player_hit_pos, explosions);
-                            Self::lose_life(ctx, board);
+                            if player_hit {
+                                Self::remove_sprite_from_board(ctx, board, "player");
+                                CollisionManager::spawn_explosion(ctx, board, player_hit_pos, explosions);
+                                Self::lose_life(ctx, board);
 
-                            PLAYER_IS_DEAD = true;
-                            PLAYER_RESPAWN_TIME = Some(Instant::now() + EXPLOSION_DURATION);
+                                PLAYER_IS_DEAD = true;
+                                PLAYER_RESPAWN_TIME = Some(Instant::now() + EXPLOSION_DURATION);
 
-                            println!("PLAYER HIT!");
+                                println!("PLAYER HIT!");
+                            }
                         }
                     }
                 }
             }
 
-            // Update player bullets
             let bullets_to_remove = PlayerManager::update_bullets(ctx, board);
             for bullet_id in &bullets_to_remove {
                 Self::remove_sprite_from_board(ctx, board, bullet_id);
