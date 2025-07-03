@@ -6,7 +6,7 @@ use std::time::Duration;
 use pelican_ui_std::Offset;
 
 use crate::player::PlayerManager;
-use crate::fly_manager::EnemyManager;
+use crate::fly::fly_manager::EnemyManager;
 
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 

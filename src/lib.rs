@@ -10,17 +10,12 @@ use std::collections::BTreeMap;
 use std::ptr::addr_of_mut;
 use pelican_ui::include_assets;
 
-mod player;
 mod game;
 mod server;
-mod fly_manager;
-mod fly_bullets;
-mod fly_movement;
-mod fly_utils;
-mod fly_patterns;
-mod fly_state;
 mod collision;
 mod settings;
+mod player;
+mod fly;
 
 use game::Galaga;
 use server::{GameServer, ServerEventHandler};

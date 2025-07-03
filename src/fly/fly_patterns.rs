@@ -22,7 +22,6 @@ impl EnemyPatterns {
     }
 
     pub fn get_pattern_1(board_width: f32, board_height: f32) -> Vec<(&'static str, &'static str, f32, f32)> {
-        // Diamond formation
         vec![
             ("b2_1", "b-2.png", board_width * 0.5, board_height * 0.05),
             ("b2_2", "b-2.png", board_width * 0.3, board_height * 0.15),
@@ -38,7 +37,6 @@ impl EnemyPatterns {
     }
 
     pub fn get_pattern_2(board_width: f32, board_height: f32) -> Vec<(&'static str, &'static str, f32, f32)> {
-        // V formation
         vec![
             ("b2_1", "b-2.png", board_width * 0.1, board_height * 0.1),
             ("b2_2", "b-2.png", board_width * 0.3, board_height * 0.15),
@@ -55,7 +53,6 @@ impl EnemyPatterns {
     }
 
     pub fn get_pattern_3(board_width: f32, board_height: f32) -> Vec<(&'static str, &'static str, f32, f32)> {
-        // Circular formation
         let center_x = board_width * 0.5;
         let center_y = board_height * 0.25;
         let radius = board_width * 0.2;
@@ -77,31 +74,4 @@ impl EnemyPatterns {
         ]
     }
 
-    pub fn get_pattern_4(board_width: f32, board_height: f32) -> Vec<(&'static str, &'static str, f32, f32)> {
-        let mut enemies = Vec::new();
-        let mut rng = rand::thread_rng();
-
-        for i in 1..=6 {
-            let x = rng.gen_range(0.1..0.9) * board_width;
-            let y = rng.gen_range(0.05..0.2) * board_height;
-            let id: &'static str = Box::leak(format!("b2_{}", i).into_boxed_str());
-            enemies.push((id, "b-2.png", x, y));
-        }
-
-        for i in 1..=8 {
-            let x = rng.gen_range(0.1..0.9) * board_width;
-            let y = rng.gen_range(0.2..0.35) * board_height;
-            let id: &'static str = Box::leak(format!("tiki_{}", i).into_boxed_str());
-            enemies.push((id, "tiki_fly.png", x, y));
-        }
-
-        for i in 1..=5 {
-            let x = rng.gen_range(0.1..0.9) * board_width;
-            let y = rng.gen_range(0.35..0.45) * board_height;
-            let id: &'static str = Box::leak(format!("northrop_{}", i).into_boxed_str());
-            enemies.push((id, "northrop.png", x, y));
-        }
-
-        enemies
-    }
 }

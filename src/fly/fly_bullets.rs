@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use rand::Rng;
 
 const ENEMY_BULLET_SPEED: f32 = 6.0;
-const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(2500); // 🔄 Slower shooting
-const ENEMY_SHOOT_CHANCE: f32 = 0.1; // 🎯 Lower probability
+const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(2500); 
+const ENEMY_SHOOT_CHANCE: f32 = 0.1; 
 
 pub struct EnemyBullets;
 
@@ -20,7 +20,7 @@ impl EnemyBullets {
         let mut enemies_to_shoot = Vec::new();
 
         let active_enemies: Vec<String> = board.2.keys()
-            .filter(|id| crate::fly_utils::is_enemy(id))
+            .filter(|id| crate::fly::fly_utils::is_enemy(id))
             .cloned()
             .collect();
 
@@ -48,7 +48,6 @@ impl EnemyBullets {
                         *last_shot = now;
                     }
                 } else {
-                    // Reset cooldown even if not shooting to prevent retry spam
                     *last_shot = now;
                 }
             }

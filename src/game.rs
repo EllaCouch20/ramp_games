@@ -2,32 +2,33 @@ use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey, OnE
 use pelican_ui::drawable::{Align, Drawable, Component};
 use pelican_ui::layout::{Area, SizeRequest, Layout};
 use pelican_ui::{Context, Component};
-
 use pelican_ui_std::{Stack, Content, Header, Bumper, Page, Button, Offset, TextStyle, Text, AppPage, Size, Padding};
-
 use pelican_game_engine::{AspectRatio, Sprite, Gameboard, SpriteAction};
 
 use std::collections::HashMap;
 use std::time::{Duration, Instant};
 
-pub use crate::fly_manager::EnemyManager;
-pub use crate::fly_state::{EnemyState, EnemyGlobalState};
+pub use crate::fly::fly_manager::EnemyManager;
+pub use crate::fly::fly_state::{EnemyState, EnemyGlobalState};
 pub use crate::collision::CollisionManager;
 
-use crate::player::PlayerManager;
+use crate::player::{PlayerManager, PlayerLives, LivesDisplayInfo, PlayerState, MovementDirection, KeysHeld, ServerMovement};
 use crate::server::{ServerEvent, GameServer, ServerEventHandler, GameAction};
 
 use crate::settings::GameSettings;
 
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 const RESPAWN_DELAY: Duration = Duration::from_millis(500);
+const LIFE_SPRITE_SIZE: (f32, f32) = (30.0, 30.0);
+const LIFE_SPRITE_SPACING: f32 = 35.0;
+const LIFE_SPRITE_START_X: f32 = 20.0;
+const LIFE_SPRITE_Y: f32 = 20.0; // Bottom left area
 
 static mut EXPLOSIONS: Option<HashMap<String, Instant>> = None;
 static mut ENEMIES_CREATED: bool = false;
 static mut PLAYER_RESPAWN_TIME: Option<Instant> = None;
 static mut PLAYER_IS_DEAD: bool = false;
 static mut SCORE: u32 = 0;
-static mut LIVES: u32 = 4;
 static mut SERVER_EVENT_HANDLER: Option<ServerEventHandler> = None;
 static mut GAME_SERVER: Option<GameServer> = None;
 static mut GAME_SETTINGS: Option<GameSettings> = None;
@@ -59,10 +60,10 @@ impl Galaga {
             PLAYER_RESPAWN_TIME = None;
             PLAYER_IS_DEAD = false;
             SCORE = 0;
-            LIVES = 4;
             GAME_SETTINGS = Some(GameSettings::new()); 
         }
 
+        PlayerLives::initialize_with_lives(4);
         EnemyManager::initialize();
         PlayerManager::initialize();
     }
@@ -80,16 +81,73 @@ impl Galaga {
     fn create_score_display(ctx: &mut Context, board: &mut Gameboard) {
         unsafe {
             let score = SCORE;
-            let lives = LIVES;
+            let lives_info = PlayerLives::get_display_info();
             let wave = EnemyManager::get_wave_count();
+            
+            // Create life sprites for each remaining life
+            Self::create_life_sprites(ctx, board, lives_info.lives);
         }
     }
 
     fn update_score_display(ctx: &mut Context, board: &mut Gameboard) {
         unsafe {
             let score = SCORE;
-            let lives = LIVES;
+            let lives_info = PlayerLives::get_display_info();
             let wave = EnemyManager::get_wave_count();
+            
+            // Update life sprites
+            Self::update_life_sprites(ctx, board, lives_info.lives);
+        }
+    }
+
+    fn create_life_sprites(ctx: &mut Context, board: &mut Gameboard, lives: u32) {
+        // Remove any existing life sprites first
+        Self::remove_all_life_sprites(ctx, board);
+        
+        // Create new life sprites
+        for i in 0..lives {
+            let life_sprite_id = format!("life_{}", i);
+            let x_pos = LIFE_SPRITE_START_X + (i as f32 * LIFE_SPRITE_SPACING);
+            
+            let mut life_sprite = Sprite::new(
+                ctx,
+                &life_sprite_id,
+                "spaceship_blue.png", // Same sprite as player
+                LIFE_SPRITE_SIZE,
+                (Offset::Static(x_pos), Offset::Static(LIFE_SPRITE_Y))
+            );
+            
+            // Set adjustments to 0 for precise positioning
+            life_sprite.adjustments().0 = 0.0;
+            life_sprite.adjustments().1 = 0.0;
+            
+            board.insert_sprite(ctx, life_sprite);
+        }
+    }
+
+    fn update_life_sprites(ctx: &mut Context, board: &mut Gameboard, lives: u32) {
+        // Get current life sprite count
+        let current_life_sprites: Vec<String> = board.2.keys()
+            .filter(|id| id.starts_with("life_"))
+            .cloned()
+            .collect();
+        
+        let current_count = current_life_sprites.len() as u32;
+        
+        // Only update if the count has changed
+        if current_count != lives {
+            Self::create_life_sprites(ctx, board, lives);
+        }
+    }
+
+    fn remove_all_life_sprites(ctx: &mut Context, board: &mut Gameboard) {
+        let life_sprite_ids: Vec<String> = board.2.keys()
+            .filter(|id| id.starts_with("life_"))
+            .cloned()
+            .collect();
+        
+        for life_id in life_sprite_ids {
+            Self::remove_sprite_from_board(ctx, board, &life_id);
         }
     }
 
@@ -102,24 +160,25 @@ impl Galaga {
     }
 
     fn lose_life(ctx: &mut Context, board: &mut Gameboard) {
-        unsafe {
-            if LIVES > 0 {
-                LIVES -= 1;
-            }
-            let lives = LIVES;
-            println!("*** PLAYER HIT! Lives remaining: {} ***", lives);
+        PlayerLives::handle_player_death();
+        let lives_info = PlayerLives::get_display_info();
+        println!("PLAYER died! Lives remaining: {}", lives_info.lives);
 
-            if LIVES == 0 {
-                println!("*** GAME OVER! ***");
-            }
+        if PlayerLives::is_game_over() {
+            println!("GAME OVER");
+            // Remove all life sprites when game is over
+            Self::remove_all_life_sprites(ctx, board);
+        } else {
+            // Update the life sprites display
+            Self::update_score_display(ctx, board);
         }
-
-        Self::update_score_display(ctx, board);
     }
 
     fn respawn_player(ctx: &mut Context, board: &mut Gameboard) {
         unsafe {
-            if LIVES > 0 {
+            let can_respawn = !PlayerLives::is_game_over();
+            
+            if can_respawn {
                 let player = PlayerManager::create_player(ctx);
                 board.insert_sprite(ctx, player);
                 println!("*** PLAYER RESPAWNED! ***");
@@ -138,6 +197,10 @@ impl Galaga {
                 EnemyManager::remove_enemy_from_base_positions(sprite_id);
             }
         }
+    }
+
+    fn is_life_sprite(sprite_id: &str) -> bool {
+        sprite_id.starts_with("life_")
     }
     
     fn handle_server_input(ctx: &mut Context, board: &mut Gameboard) {
@@ -193,6 +256,8 @@ impl Galaga {
                     ENEMIES_CREATED = true;
                 }
             }
+
+            PlayerLives::update(ctx, board);
 
             unsafe {
                 if let Some(respawn_time) = PLAYER_RESPAWN_TIME {
