@@ -5,8 +5,8 @@ use std::time::{Duration, Instant};
 use rand::Rng;
 
 const ENEMY_BULLET_SPEED: f32 = 6.0;
-const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(1500);
-const ENEMY_SHOOT_CHANCE: f32 = 0.3;
+const ENEMY_SHOOT_COOLDOWN: Duration = Duration::from_millis(2500); // 🔄 Slower shooting
+const ENEMY_SHOOT_CHANCE: f32 = 0.1; // 🎯 Lower probability
 
 pub struct EnemyBullets;
 
@@ -48,13 +48,13 @@ impl EnemyBullets {
                         *last_shot = now;
                     }
                 } else {
-                    // Reset cooldown even if not shooting to prevent immediate retry
+                    // Reset cooldown even if not shooting to prevent retry spam
                     *last_shot = now;
                 }
             }
         }
 
-        for (enemy_id, pos, size) in enemies_to_shoot {
+        for (_enemy_id, pos, size) in enemies_to_shoot {
             Self::enemy_shoot(ctx, board, pos, size);
         }
     }
@@ -95,7 +95,10 @@ impl EnemyBullets {
         bullets_to_remove
     }
 
-    pub fn get_active_enemy_bullets(board: &mut Gameboard, ctx: &mut Context) -> Vec<(String, (f32, f32), (f32, f32))> {
+    pub fn get_active_enemy_bullets(
+        board: &mut Gameboard,
+        ctx: &mut Context
+    ) -> Vec<(String, (f32, f32), (f32, f32))> {
         let mut active_bullets = Vec::new();
 
         for (id, sprite) in board.2.iter_mut() {

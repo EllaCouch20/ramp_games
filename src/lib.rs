@@ -9,6 +9,7 @@ use pelican_ui::events::{Event, Key, KeyboardEvent, KeyboardState, NamedKey};
 use std::collections::BTreeMap;
 use std::ptr::addr_of_mut;
 use pelican_ui::include_assets;
+
 mod player;
 mod game;
 mod server;
@@ -21,8 +22,10 @@ mod fly_state;
 mod collision;
 
 use game::Galaga;
+use server::{GameServer, ServerEventHandler};
 
 pub struct MyApp;
+
 impl Services for MyApp {
     fn services() -> ServiceList {
         ServiceList::default()
@@ -38,7 +41,29 @@ impl Plugins for MyApp {
 impl Application for MyApp {
     async fn new(ctx: &mut Context) -> Box<dyn Drawable> {
         ctx.assets.include_assets(include_assets!("./assets"));
-        Box::new(Galaga::new(ctx))
+        
+        // Initialize the server and event handler
+        match GameServer::new() {
+            Ok((mut server, receiver)) => {
+                // Start the server on a separate thread
+                if let Err(e) = server.start() {
+                    eprintln!("Failed to start game server: {}", e);
+                } else {
+                    println!("Game server started successfully!");
+                }
+                
+                // Create the event handler
+                let event_handler = ServerEventHandler::new(receiver);
+                
+                // Create the game with the server components
+                Box::new(Galaga::new_with_server(ctx, server, event_handler))
+            }
+            Err(e) => {
+                eprintln!("Failed to initialize game server: {}", e);
+                // Fall back to game without server
+                Box::new(Galaga::new(ctx))
+            }
+        }
     }
 }
 

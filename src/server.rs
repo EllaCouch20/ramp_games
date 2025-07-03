@@ -1,9 +1,9 @@
-use std::collections::HashMap;
 use std::sync::mpsc::{self, Receiver, Sender};
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::net::{TcpListener, TcpStream};
+use tokio_tungstenite::{accept_async, tungstenite::Message};
+use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
-use std::net::SocketAddr;
+use local_ip_address::local_ip;
 
 #[derive(Debug, Clone)]
 pub enum ServerEvent {
@@ -21,14 +21,6 @@ pub enum GameAction {
     Shoot,
 }
 
-#[derive(Debug)]
-struct HttpRequest {
-    method: String,
-    path: String,
-    headers: HashMap<String, String>,
-    body: Option<String>,
-}
-
 pub struct GameServer {
     runtime: tokio::runtime::Runtime,
     event_sender: Sender<ServerEvent>,
@@ -36,7 +28,7 @@ pub struct GameServer {
 }
 
 impl GameServer {
-    const SERVER_ADDRESS: &'static str = "192.168.1.110:3030";
+    const PORT: u16 = 3030;
 
     pub fn new() -> Result<(Self, Receiver<ServerEvent>), Box<dyn std::error::Error>> {
         let (tx, rx) = mpsc::channel();
@@ -51,30 +43,38 @@ impl GameServer {
         Ok((server, rx))
     }
 
+    fn get_server_address() -> Result<String, Box<dyn std::error::Error>> {
+        let local_ip = local_ip()?;
+        Ok(format!("{}:{}", local_ip, Self::PORT))
+    }
+
     pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+        let server_address = Self::get_server_address()?;
+        println!("WebSocket Game server starting on {}", server_address);
+        println!("Local IP address: {}", local_ip()?);
+        
         let event_sender = self.event_sender.clone();
         
         let handle = self.runtime.spawn(async move {
             if let Err(e) = Self::run_server(event_sender).await {
-                eprintln!("Server error: {}", e);
+                println!("Server error: {}", e);
             }
         });
 
         self.server_handle = Some(handle);
-        println!("Game server started on {}", Self::SERVER_ADDRESS);
         Ok(())
     }
 
     pub fn stop(&mut self) {
         if let Some(handle) = self.server_handle.take() {
             handle.abort();
-            println!("Game server stopped");
         }
     }
 
     async fn run_server(event_sender: Sender<ServerEvent>) -> Result<(), Box<dyn std::error::Error>> {
-        let listener = TcpListener::bind(Self::SERVER_ADDRESS).await?;
-        println!("Server listening on {}", Self::SERVER_ADDRESS);
+        let server_address = Self::get_server_address()?;
+        let listener = TcpListener::bind(&server_address).await?;
+        println!("WebSocket server listening on {}", server_address);
 
         loop {
             match listener.accept().await {
@@ -85,172 +85,96 @@ impl GameServer {
                     let sender_clone = event_sender.clone();
                     tokio::spawn(async move {
                         if let Err(e) = Self::handle_client(stream, sender_clone).await {
-                            eprintln!("Client handling error: {}", e);
+                            println!("Client error: {}", e);
                         }
                     });
                 }
                 Err(e) => {
-                    eprintln!("Error accepting connection: {}", e);
+                    println!("Failed to accept connection: {}", e);
                 }
             }
         }
     }
 
     async fn handle_client(
-        mut stream: TcpStream,
+        stream: TcpStream,
         event_sender: Sender<ServerEvent>,
     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let mut buffer = [0; 1024];
-        
-        let bytes_read = stream.read(&mut buffer).await?;
-        if bytes_read == 0 {
-            return Ok(());
-        }
+        let ws_stream = accept_async(stream).await?;
+        println!("WebSocket connection established");
 
-        let request = String::from_utf8_lossy(&buffer[..bytes_read]);
-        println!("Received request from {}: {} bytes", 
-                stream.peer_addr()?, bytes_read);
+        let (mut ws_sender, mut ws_receiver) = ws_stream.split();
 
-        match Self::parse_http_request(&request) {
-            Some(parsed_request) => {
-                Self::handle_http_request(parsed_request, &mut stream, event_sender).await?;
-            }
-            None => {
-                let response = Self::create_response(400, "Bad Request", "Invalid HTTP request");
-                stream.write_all(response.as_bytes()).await?;
-            }
-        }
+        let welcome_msg = Message::Text("Connected to game server".into());
+        ws_sender.send(welcome_msg).await?;
 
-        stream.flush().await?;
-        Ok(())
-    }
+        while let Some(msg) = ws_receiver.next().await {
+            match msg {
+                Ok(Message::Text(text)) => {
+                    println!("Received: {}", text);
+                    
+                    match Self::parse_game_message(&text) {
+                        Ok((action_type, value)) => {
+                            let event = match action_type.as_str() {
+                                "right" => Some(ServerEvent::RightPeak(value)),
+                                "left" => Some(ServerEvent::LeftPeak(value)),
+                                "shoot" => Some(ServerEvent::ShootPeak(value)),
+                                _ => None,
+                            };
 
-    async fn handle_http_request(
-        request: HttpRequest,
-        stream: &mut TcpStream,
-        event_sender: Sender<ServerEvent>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        match request.method.as_str() {
-            "POST" => {
-                Self::handle_post_request(request, stream, event_sender).await?;
-            }
-            "OPTIONS" => {
-                // Handle CORS preflight
-                let response = Self::create_response(200, "OK", "");
-                stream.write_all(response.as_bytes()).await?;
-            }
-            _ => {
-                let response = Self::create_response(405, "Method Not Allowed", "Only POST and OPTIONS supported");
-                stream.write_all(response.as_bytes()).await?;
-            }
-        }
-        Ok(())
-    }
-
-    async fn handle_post_request(
-        request: HttpRequest,
-        stream: &mut TcpStream,
-        event_sender: Sender<ServerEvent>,
-    ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
-        let body = request.body.as_deref().unwrap_or("");
-        
-        match Self::parse_json_body(body) {
-            Ok(peak_value) => {
-                let event = match request.path.as_str() {
-                    "/peakright" => Some(ServerEvent::RightPeak(peak_value)),
-                    "/leftpeak" => Some(ServerEvent::LeftPeak(peak_value)),
-                    "/shootpeak" => Some(ServerEvent::ShootPeak(peak_value)),
-                    _ => None,
-                };
-
-                match event {
-                    Some(server_event) => {
-                        let _ = event_sender.send(server_event);
-                        let response = Self::create_response(200, "OK", "Peak received successfully");
-                        stream.write_all(response.as_bytes()).await?;
-                    }
-                    None => {
-                        let response = Self::create_response(404, "Not Found", "Endpoint not found");
-                        stream.write_all(response.as_bytes()).await?;
+                            match event {
+                                Some(server_event) => {
+                                    let _ = event_sender.send(server_event);
+                                    let response = Message::Text("OK".into());
+                                    ws_sender.send(response).await?;
+                                }
+                                None => {
+                                    let response = Message::Text("Unknown action".into());
+                                    ws_sender.send(response).await?;
+                                }
+                            }
+                        }
+                        Err(e) => {
+                            println!("Parse error: {}", e);
+                            let response = Message::Text("Parse error".into());
+                            ws_sender.send(response).await?;
+                        }
                     }
                 }
-            }
-            Err(e) => {
-                eprintln!("Error parsing JSON: {}", e);
-                let response = Self::create_response(400, "Bad Request", "Invalid JSON");
-                stream.write_all(response.as_bytes()).await?;
+                Ok(Message::Close(_)) => {
+                    println!("WebSocket connection closed");
+                    let _ = event_sender.send(ServerEvent::ConnectionLost);
+                    break;
+                }
+                Ok(Message::Ping(payload)) => {
+                    ws_sender.send(Message::Pong(payload)).await?;
+                }
+                Ok(_) => {
+                }
+                Err(e) => {
+                    println!("WebSocket error: {}", e);
+                    let _ = event_sender.send(ServerEvent::ConnectionLost);
+                    break;
+                }
             }
         }
+
         Ok(())
     }
 
-    fn parse_json_body(body: &str) -> Result<i32, Box<dyn std::error::Error + Send + Sync>> {
-        let json: Value = serde_json::from_str(body)?;
+    fn parse_game_message(message: &str) -> Result<(String, i32), Box<dyn std::error::Error + Send + Sync>> {
+        let json: Value = serde_json::from_str(message)?;
 
-        json.get("peak")
-            .and_then(|peak| peak.as_i64())
-            .map(|peak_num| peak_num as i32)
-            .ok_or_else(|| "Peak field not found or not a number".into())
-    }
+        let action = json.get("action")
+            .and_then(|a| a.as_str())
+            .ok_or("Action field not found")?;
 
-    fn create_response(status_code: u16, status_text: &str, body: &str) -> String {
-        format!(
-            "HTTP/1.1 {} {}\r\n\
-             Content-Type: text/plain\r\n\
-             Content-Length: {}\r\n\
-             Connection: close\r\n\
-             Access-Control-Allow-Origin: *\r\n\
-             Access-Control-Allow-Methods: POST, GET, OPTIONS\r\n\
-             Access-Control-Allow-Headers: Content-Type\r\n\
-             \r\n\
-             {}",
-            status_code, status_text, body.len(), body
-        )
-    }
+        let value = json.get("value")
+            .and_then(|v| v.as_i64())
+            .map(|v| v as i32)
+            .ok_or("Value field not found or not a number")?;
 
-    fn parse_http_request(request: &str) -> Option<HttpRequest> {
-        let lines: Vec<&str> = request.lines().collect();
-        if lines.is_empty() {
-            return None;
-        }
-
-        // Parse request line
-        let request_parts: Vec<&str> = lines[0].split_whitespace().collect();
-        if request_parts.len() < 2 {
-            return None;
-        }
-
-        let method = request_parts[0].to_string();
-        let path = request_parts[1].to_string();
-
-        // Parse headers
-        let mut headers = HashMap::new();
-        let mut body_start_index = None;
-
-        for (i, line) in lines.iter().enumerate().skip(1) {
-            if line.is_empty() {
-                body_start_index = Some(i + 1);
-                break;
-            }
-
-            if let Some(colon_pos) = line.find(':') {
-                let key = line[..colon_pos].trim().to_lowercase();
-                let value = line[colon_pos + 1..].trim().to_string();
-                headers.insert(key, value);
-            }
-        }
-
-        // Parse body
-        let body = body_start_index
-            .filter(|&start_index| start_index < lines.len())
-            .map(|start_index| lines[start_index..].join("\n"));
-
-        Some(HttpRequest {
-            method,
-            path,
-            headers,
-            body,
-        })
+        Ok((action.to_string(), value))
     }
 }
 
@@ -283,22 +207,22 @@ impl ServerEventHandler {
         for event in events {
             match event {
                 ServerEvent::RightPeak(value) => {
-                    println!("🎮 Arduino right peak: {} - MOVE RIGHT", value);
+                    println!("Right peak: {}", value);
                     return Some(GameAction::MoveRight);
                 }
                 ServerEvent::LeftPeak(value) => {
-                    println!("🎮 Arduino left peak: {} - MOVE LEFT", value);
+                    println!("Left peak: {}", value);
                     return Some(GameAction::MoveLeft);
                 }
                 ServerEvent::ShootPeak(value) => {
-                    println!("🎮 Arduino shoot peak: {} - SHOOT", value);
+                    println!("Shoot peak: {}", value);
                     return Some(GameAction::Shoot);
                 }
                 ServerEvent::ConnectionEstablished => {
-                    println!("Arduino connected to game server!");
+                    println!("Connection established");
                 }
                 ServerEvent::ConnectionLost => {
-                    println!("Arduino connection lost!");
+                    println!("Connection lost");
                 }
             }
         }
@@ -306,3 +230,229 @@ impl ServerEventHandler {
         None
     }
 }
+
+
+
+// use std::sync::mpsc::{self, Receiver, Sender};
+// use tokio::net::{TcpListener, TcpStream};
+// use tokio_tungstenite::{accept_async, tungstenite::Message};
+// use futures_util::{SinkExt, StreamExt};
+// use serde_json::Value;
+
+// #[derive(Debug, Clone)]
+// pub enum ServerEvent {
+//     RightPeak(i32),
+//     LeftPeak(i32),
+//     ShootPeak(i32),
+//     ConnectionEstablished,
+//     ConnectionLost,
+// }
+
+// #[derive(Debug, Clone)]
+// pub enum GameAction {
+//     MoveRight,
+//     MoveLeft,
+//     Shoot,
+// }
+
+// pub struct GameServer {
+//     runtime: tokio::runtime::Runtime,
+//     event_sender: Sender<ServerEvent>,
+//     server_handle: Option<tokio::task::JoinHandle<()>>,
+// }
+
+// impl GameServer {
+//     const SERVER_ADDRESS: &'static str = "192.168.1.122:3030"; // Replace with your server address
+
+//     pub fn new() -> Result<(Self, Receiver<ServerEvent>), Box<dyn std::error::Error>> {
+//         let (tx, rx) = mpsc::channel();
+//         let runtime = tokio::runtime::Runtime::new()?;
+
+//         let server = GameServer {
+//             runtime,
+//             event_sender: tx,
+//             server_handle: None,
+//         };
+
+//         Ok((server, rx))
+//     }
+
+//     pub fn start(&mut self) -> Result<(), Box<dyn std::error::Error>> {
+//         println!("WebSocket Game server starting on {}", Self::SERVER_ADDRESS);
+        
+//         let event_sender = self.event_sender.clone();
+        
+//         let handle = self.runtime.spawn(async move {
+//             if let Err(e) = Self::run_server(event_sender).await {
+//                 println!("Server error: {}", e);
+//             }
+//         });
+
+//         self.server_handle = Some(handle);
+//         Ok(())
+//     }
+
+//     pub fn stop(&mut self) {
+//         if let Some(handle) = self.server_handle.take() {
+//             handle.abort();
+//         }
+//     }
+
+//     async fn run_server(event_sender: Sender<ServerEvent>) -> Result<(), Box<dyn std::error::Error>> {
+//         let listener = TcpListener::bind(Self::SERVER_ADDRESS).await?;
+//         println!("WebSocket server listening on {}", Self::SERVER_ADDRESS);
+
+//         loop {
+//             match listener.accept().await {
+//                 Ok((stream, addr)) => {
+//                     println!("New connection from: {}", addr);
+//                     let _ = event_sender.send(ServerEvent::ConnectionEstablished);
+                    
+//                     let sender_clone = event_sender.clone();
+//                     tokio::spawn(async move {
+//                         if let Err(e) = Self::handle_client(stream, sender_clone).await {
+//                             println!("Client error: {}", e);
+//                         }
+//                     });
+//                 }
+//                 Err(e) => {
+//                     println!("Failed to accept connection: {}", e);
+//                 }
+//             }
+//         }
+//     }
+
+//     async fn handle_client(
+//         stream: TcpStream,
+//         event_sender: Sender<ServerEvent>,
+//     ) -> Result<(), Box<dyn std::error::Error + Send + Sync>> {
+//         let ws_stream = accept_async(stream).await?;
+//         println!("WebSocket connection established");
+
+//         let (mut ws_sender, mut ws_receiver) = ws_stream.split();
+
+//         let welcome_msg = Message::Text("Connected to game server".into());
+//         ws_sender.send(welcome_msg).await?;
+
+//         while let Some(msg) = ws_receiver.next().await {
+//             match msg {
+//                 Ok(Message::Text(text)) => {
+//                     println!("Received: {}", text);
+                    
+//                     match Self::parse_game_message(&text) {
+//                         Ok((action_type, value)) => {
+//                             let event = match action_type.as_str() {
+//                                 "right" => Some(ServerEvent::RightPeak(value)),
+//                                 "left" => Some(ServerEvent::LeftPeak(value)),
+//                                 "shoot" => Some(ServerEvent::ShootPeak(value)),
+//                                 _ => None,
+//                             };
+
+//                             match event {
+//                                 Some(server_event) => {
+//                                     let _ = event_sender.send(server_event);
+//                                     let response = Message::Text("OK".into());
+//                                     ws_sender.send(response).await?;
+//                                 }
+//                                 None => {
+//                                     let response = Message::Text("Unknown action".into());
+//                                     ws_sender.send(response).await?;
+//                                 }
+//                             }
+//                         }
+//                         Err(e) => {
+//                             println!("Parse error: {}", e);
+//                             let response = Message::Text("Parse error".into());
+//                             ws_sender.send(response).await?;
+//                         }
+//                     }
+//                 }
+//                 Ok(Message::Close(_)) => {
+//                     println!("WebSocket connection closed");
+//                     let _ = event_sender.send(ServerEvent::ConnectionLost);
+//                     break;
+//                 }
+//                 Ok(Message::Ping(payload)) => {
+//                     ws_sender.send(Message::Pong(payload)).await?;
+//                 }
+//                 Ok(_) => {
+//                 }
+//                 Err(e) => {
+//                     println!("WebSocket error: {}", e);
+//                     let _ = event_sender.send(ServerEvent::ConnectionLost);
+//                     break;
+//                 }
+//             }
+//         }
+
+//         Ok(())
+//     }
+
+//     fn parse_game_message(message: &str) -> Result<(String, i32), Box<dyn std::error::Error + Send + Sync>> {
+//         let json: Value = serde_json::from_str(message)?;
+
+//         let action = json.get("action")
+//             .and_then(|a| a.as_str())
+//             .ok_or("Action field not found")?;
+
+//         let value = json.get("value")
+//             .and_then(|v| v.as_i64())
+//             .map(|v| v as i32)
+//             .ok_or("Value field not found or not a number")?;
+
+//         Ok((action.to_string(), value))
+//     }
+// }
+
+// impl Drop for GameServer {
+//     fn drop(&mut self) {
+//         self.stop();
+//     }
+// }
+
+// pub struct ServerEventHandler {
+//     receiver: Receiver<ServerEvent>,
+// }
+
+// impl ServerEventHandler {
+//     pub fn new(receiver: Receiver<ServerEvent>) -> Self {
+//         Self { receiver }
+//     }
+
+//     pub fn check_events(&self) -> Vec<ServerEvent> {
+//         let mut events = Vec::new();
+//         while let Ok(event) = self.receiver.try_recv() {
+//             events.push(event);
+//         }
+//         events
+//     }
+
+//     pub fn process_events_for_game(&self) -> Option<GameAction> {
+//         let events = self.check_events();
+
+//         for event in events {
+//             match event {
+//                 ServerEvent::RightPeak(value) => {
+//                     println!("Right peak: {}", value);
+//                     return Some(GameAction::MoveRight);
+//                 }
+//                 ServerEvent::LeftPeak(value) => {
+//                     println!("Left peak: {}", value);
+//                     return Some(GameAction::MoveLeft);
+//                 }
+//                 ServerEvent::ShootPeak(value) => {
+//                     println!("Shoot peak: {}", value);
+//                     return Some(GameAction::Shoot);
+//                 }
+//                 ServerEvent::ConnectionEstablished => {
+//                     println!("Connection established");
+//                 }
+//                 ServerEvent::ConnectionLost => {
+//                     println!("Connection lost");
+//                 }
+//             }
+//         }
+
+//         None
+//     }
+// }

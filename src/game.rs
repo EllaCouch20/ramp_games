@@ -15,7 +15,7 @@ pub use crate::fly_state::{EnemyState, EnemyGlobalState};
 pub use crate::collision::CollisionManager;
 
 use crate::player::PlayerManager;
-use crate::server::ServerEvent;
+use crate::server::{ServerEvent, GameServer, ServerEventHandler, GameAction};
 
 const EXPLOSION_DURATION: Duration = Duration::from_secs(2);
 const RESPAWN_DELAY: Duration = Duration::from_millis(500);
@@ -26,12 +26,30 @@ static mut PLAYER_RESPAWN_TIME: Option<Instant> = None;
 static mut PLAYER_IS_DEAD: bool = false;
 static mut SCORE: u32 = 0;
 static mut LIVES: u32 = 4;
+static mut SERVER_EVENT_HANDLER: Option<ServerEventHandler> = None;
+static mut GAME_SERVER: Option<GameServer> = None;
 
 #[derive(Debug)]
 pub struct Galaga;
 
 impl Galaga {
     pub fn new(ctx: &mut Context) -> Gameboard {
+        Self::initialize_game_state();
+        Self::create_gameboard(ctx)
+    }
+    
+    pub fn new_with_server(ctx: &mut Context, server: GameServer, event_handler: ServerEventHandler) -> Gameboard {
+        Self::initialize_game_state();
+        
+        unsafe {
+            GAME_SERVER = Some(server);
+            SERVER_EVENT_HANDLER = Some(event_handler);
+        }
+        
+        Self::create_gameboard(ctx)
+    }
+    
+    fn initialize_game_state() {
         unsafe {
             ENEMIES_CREATED = false;
             EXPLOSIONS = Some(HashMap::new());
@@ -43,7 +61,9 @@ impl Galaga {
 
         EnemyManager::initialize();
         PlayerManager::initialize();
-
+    }
+    
+    fn create_gameboard(ctx: &mut Context) -> Gameboard {
         let mut gameboard = Gameboard::new(ctx, AspectRatio::OneOne, Box::new(Self::on_event));
         let player = PlayerManager::create_player(ctx);
         gameboard.insert_sprite(ctx, player);
@@ -115,9 +135,35 @@ impl Galaga {
             }
         }
     }
+    
+    fn handle_server_input(ctx: &mut Context, board: &mut Gameboard) {
+        unsafe {
+            if let Some(ref event_handler) = SERVER_EVENT_HANDLER {
+                if let Some(action) = event_handler.process_events_for_game() {
+                    match action {
+                        GameAction::MoveRight => {
+                            println!("🎮 Server input: Move Right");
+                            PlayerManager::handle_server_move_right(ctx, board);
+                        }
+                        GameAction::MoveLeft => {
+                            println!("🎮 Server input: Move Left");
+                            PlayerManager::handle_server_move_left(ctx, board);
+                        }
+                        GameAction::Shoot => {
+                            println!("🎮 Server input: Shoot");
+                            PlayerManager::handle_server_shoot(ctx, board);
+                        }
+                    }
+                }
+            }
+        }
+    }
 
     fn on_event(board: &mut Gameboard, ctx: &mut Context, event: &mut dyn Event) -> bool {
         if let Some(TickEvent) = event.downcast_ref::<TickEvent>() {
+            // Handle server input first
+            Self::handle_server_input(ctx, board);
+            
             unsafe {
                 if !ENEMIES_CREATED {
                     EnemyManager::create_enemies(ctx, board);
@@ -211,5 +257,17 @@ impl Galaga {
             }
         }
         true
+    }
+}
+
+impl Drop for Galaga {
+    fn drop(&mut self) {
+        unsafe {
+            let server_ptr = std::ptr::addr_of_mut!(GAME_SERVER);
+            if let Some(mut server) = (*server_ptr).take() {
+                server.stop();
+                println!("Game server stopped during cleanup");
+            }
+        }
     }
 }

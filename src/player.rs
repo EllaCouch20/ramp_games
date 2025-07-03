@@ -8,6 +8,7 @@ const STEP: f32 = 1.5;
 const BULLET_SPEED: f32 = 8.0;
 const SHOOT_COOLDOWN: Duration = Duration::from_millis(200);
 const MOVEMENT_SPEED: f32 = 300.0;
+const SERVER_MOVEMENT_DURATION: Duration = Duration::from_millis(100); // How long server movement lasts
 
 #[derive(Clone, Copy, Debug)]
 enum PlayerState {
@@ -48,9 +49,16 @@ impl KeysHeld {
     }
 }
 
+#[derive(Clone, Copy)]
+struct ServerMovement {
+    direction: MovementDirection,
+    start_time: Instant,
+}
+
 static mut PLAYER_STATE: PlayerState = PlayerState::Idle { last_shot: None };
 static mut KEYS_HELD: KeysHeld = KeysHeld::new();
 static mut LAST_UPDATE_TIME: Option<Instant> = None;
+static mut SERVER_MOVEMENT: Option<ServerMovement> = None;
 
 pub struct PlayerManager;
 
@@ -60,6 +68,7 @@ impl PlayerManager {
             PLAYER_STATE = PlayerState::Idle { last_shot: None };
             KEYS_HELD = KeysHeld::new();
             LAST_UPDATE_TIME = Some(Instant::now());
+            SERVER_MOVEMENT = None;
         }
     }
 
@@ -105,10 +114,59 @@ impl PlayerManager {
         handled
     }
 
+    /// Handle server-driven move right action
+    pub fn handle_server_move_right(ctx: &mut Context, board: &mut Gameboard) {
+        unsafe {
+            SERVER_MOVEMENT = Some(ServerMovement {
+                direction: MovementDirection::Right,
+                start_time: Instant::now(),
+            });
+            println!("🎮 Server: Move Right activated");
+        }
+    }
+    
+    /// Handle server-driven move left action
+    pub fn handle_server_move_left(ctx: &mut Context, board: &mut Gameboard) {
+        unsafe {
+            SERVER_MOVEMENT = Some(ServerMovement {
+                direction: MovementDirection::Left,
+                start_time: Instant::now(),
+            });
+            println!("🎮 Server: Move Left activated");
+        }
+    }
+    
+    /// Handle server-driven shoot action
+    pub fn handle_server_shoot(ctx: &mut Context, board: &mut Gameboard) {
+        Self::handle_shooting(ctx, board);
+        println!("🎮 Server: Shoot activated");
+    }
+
+    fn update_server_movement_state() -> MovementDirection {
+        unsafe {
+            if let Some(server_mov) = SERVER_MOVEMENT {
+                let now = Instant::now();
+                if now.duration_since(server_mov.start_time) < SERVER_MOVEMENT_DURATION {
+                    return server_mov.direction;
+                } else {
+                    SERVER_MOVEMENT = None;
+                }
+            }
+            MovementDirection::None
+        }
+    }
+
     fn update_player_state() {
         unsafe {
             let keys_copy = KEYS_HELD;
-            let direction = keys_copy.to_direction();
+            let keyboard_direction = keys_copy.to_direction();
+            let server_direction = Self::update_server_movement_state();
+            
+            // Combine keyboard and server input (server takes priority)
+            let direction = match server_direction {
+                MovementDirection::None => keyboard_direction,
+                other => other,
+            };
 
             PLAYER_STATE = match (PLAYER_STATE, direction) {
                 (PlayerState::Idle { last_shot }, MovementDirection::Left) =>
@@ -163,13 +221,13 @@ impl PlayerManager {
         }
     }
 
-
     pub fn update_player_movement(ctx: &mut Context, board: &mut Gameboard) {
         if !board.2.contains_key("player") {
             return;
         }
 
         unsafe {
+            Self::update_player_state(); // Update state first to handle server input
             Self::handle_movement_by_state(ctx, board);
         }
     }
@@ -195,15 +253,16 @@ impl PlayerManager {
                     }
 
                     PlayerState::MovingBoth { left_speed, right_speed, .. } => {
+                        // Handle both directions (should cancel out or apply custom logic)
                     }
 
                     PlayerState::Idle { .. } | PlayerState::Shooting { .. } | PlayerState::Destroyed => {
+                        // No movement
                     }
                 }
             }
         }
     }
-
 
     pub fn handle_player_action(ctx: &mut Context, board: &mut Gameboard, action: SpriteAction) {
         if !board.2.contains_key("player") {
@@ -248,7 +307,14 @@ impl PlayerManager {
                     Self::shoot(ctx, board, pos, size);
 
                     let keys_copy = KEYS_HELD;
-                    let current_direction = keys_copy.to_direction();
+                    let keyboard_direction = keys_copy.to_direction();
+                    let server_direction = Self::update_server_movement_state();
+                    
+                    let current_direction = match server_direction {
+                        MovementDirection::None => keyboard_direction,
+                        other => other,
+                    };
+
                     PLAYER_STATE = PlayerState::Shooting {
                         direction: current_direction,
                         shot_time: Instant::now()

@@ -10,6 +10,8 @@ pub struct GameSettings {
     
     pub bullet_speed_fly: f32,
     pub bullet_speed_player: f32,
+    
+    pub peak_min: f32, 
 }
 
 impl GameSettings {
@@ -22,6 +24,7 @@ impl GameSettings {
             player_invincible: false,
             bullet_speed_fly: 800.0,
             bullet_speed_player: 600.0,
+            peak_min: 500.0, 
         }
     }
     
@@ -51,6 +54,14 @@ impl GameSettings {
     
     pub fn set_bullet_speed_player(&mut self, speed: f32) {
         self.bullet_speed_player = speed;
+    }
+    
+    pub fn set_peak_min(&mut self, peak: f32) {
+        self.peak_min = peak;
+    }
+    
+    pub fn get_peak_min(&self) -> f32 {
+        self.peak_min
     }
 }
 
