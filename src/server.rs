@@ -1,9 +1,11 @@
+use std::ptr::addr_of_mut;
 use std::sync::mpsc::{self, Receiver, Sender};
 use tokio::net::{TcpListener, TcpStream};
 use tokio_tungstenite::{accept_async, tungstenite::Message};
 use futures_util::{SinkExt, StreamExt};
 use serde_json::Value;
 use local_ip_address::local_ip;
+use pelican_ui::Context;
 
 use crate::settings::GameSettings;
 
@@ -203,10 +205,10 @@ impl ServerEventHandler {
         events
     }
 
-    pub fn process_events_for_game(&self) -> Option<GameAction> {
+    pub fn process_events_for_game(&self, ctx: &mut Context) -> Option<GameAction> {
         let events = self.check_events();
 
-        let peak_min = if let Some(settings) = crate::Galaga::get_game_settings() {
+        let peak_min = if let Some(settings) = ctx.state().get_mut::<GameSettings>() {
             settings.get_peak_min()
         } else {
             500.0 

@@ -13,6 +13,7 @@ use crate::fly::fly_utils;
 
 static ENEMY_GLOBALS: OnceLock<Mutex<EnemyGlobalState>> = OnceLock::new();
 
+
 pub struct EnemyManager;
 
 impl EnemyManager {

@@ -23,7 +23,7 @@ impl PlayerManager {
     }
 
     pub fn create_player(ctx: &mut Context) -> Sprite {
-        let mut player = Sprite::new(ctx, "player", "spaceship_blue.png", (50.0, 50.0), (Offset::Center, Offset::End));
+        let mut player = Sprite::new(ctx, "player", "spaceship", (50.0, 50.0), (Offset::Center, Offset::End));
         player.adjustments().0 = 0.0;
         player.adjustments().1 = 0.0;
         player
@@ -132,7 +132,7 @@ impl PlayerManager {
         let bullet = Sprite::new(
             ctx,
             &bullet_id,
-            "bullet_blue.png",
+            "bullet_blue",
             b_size,
             (
                 Offset::Static(x + ((player_size.0 - b_size.0) / 2.0)),

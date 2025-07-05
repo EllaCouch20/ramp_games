@@ -142,7 +142,7 @@ impl CollisionManager {
         let sprite = Sprite::new(
             ctx,
             &id,
-            "explosion.png",
+            "explosion",
             (50.0, 50.0),
             (Offset::Static(pos.0), Offset::Static(pos.1)),
         );

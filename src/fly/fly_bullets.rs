@@ -66,7 +66,7 @@ impl EnemyBullets {
         let bullet = Sprite::new(
             ctx,
             &bullet_id,
-            "bullet_downward.png",
+            "bullet_downward",
             bullet_size,
             (
                 Offset::Static(x + ((enemy_size.0 - bullet_size.0) / 2.0)),
